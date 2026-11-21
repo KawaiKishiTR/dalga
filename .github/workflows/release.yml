@@ -1,0 +1,51 @@
+name: Build and Release Windows EXE
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+      - name: Depoyu indir (Checkout)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Etiketin main dalında olduğunu doğrula
+        shell: pwsh
+        run: |
+          $branches = git branch -r --contains $env:GITHUB_SHA
+          if (-not ($branches -match "origin/main")) {
+            Write-Error "Bu etiket main dalındaki bir commit üzerinde değil!"
+            exit 1
+          }
+
+      - name: uv kurulumu
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Bağımlılıkları yükle (uv sync)
+        run: uv sync --frozen
+
+      - name: PyInstaller ile EXE derle
+        run: |
+          uv run pyinstaller `
+            --onefile `
+            --windowed `
+            --name DALGA `
+            --add-data "locales;locales" `
+            main.py
+
+      - name: GitHub Release oluştur ve EXE ekle
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/DALGA.exe
+          generate_release_notes: true

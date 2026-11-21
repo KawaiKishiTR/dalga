@@ -1,13 +1,14 @@
+import sys
 from pathlib import Path
-from functools import lru_cache
 
+if getattr(sys, "frozen", False):
+    BASE_DIR = Path(sys.executable).parent          # .exe'nin bulunduğu klasör (config için)
+    RESOURCE_DIR = Path(sys._MEIPASS)               # gömülü dosyalar (locale vb. için)
+else:
+    BASE_DIR = Path(__file__).resolve().parents[2]
+    RESOURCE_DIR = BASE_DIR
 
-@lru_cache(maxsize=1)
-def get_root_dir() -> Path:
-    return Path(__file__).parent.parent.parent
-
-APP_DIR         = get_root_dir() / "app";       APP_DIR.mkdir(exist_ok=True, parents=True)
-CONFIG_DIR      = get_root_dir() / "config";    CONFIG_DIR.mkdir(exist_ok=True, parents=True)
-LOGS_DIR        = get_root_dir() / "logs";      LOGS_DIR.mkdir(exist_ok=True, parents=True)
-LOCALE_DIR      = get_root_dir() / "locales"
+CONFIG_DIR      = BASE_DIR      / "config";    CONFIG_DIR.mkdir(exist_ok=True, parents=True)
+LOGS_DIR        = BASE_DIR      / "logs";      LOGS_DIR.mkdir(exist_ok=True, parents=True)
+LOCALE_DIR      = RESOURCE_DIR  / "locales"
 
