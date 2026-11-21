@@ -6,15 +6,13 @@ Gerekenler:
     - pip install keyboard   (zaten kurulu)
 
 Calistirmadan once SteelSeries GG ve OpenRGB KAPALI olsun.
-Calistir:  python dalga.py
-Ayarlar, ayni klasordeki ayarlar.json dosyasina otomatik kaydedilir.
+Calistir:  python main.py
+Ayarlar, ayni klasordeki config/config.yml dosyasina otomatik kaydedilir.
 """
 
 import colorsys
-import json
 import math
 import os
-import re
 import threading
 import time
 import tkinter as tk
@@ -23,83 +21,30 @@ from tkinter import colorchooser
 
 import keyboard
 
+from config.models.app_config import AppConfig
 from apex_hid import ApexKlavye
 
 SURUM = "v0.4"
 KLASOR = os.path.dirname(os.path.abspath(__file__))
-AYAR_DOSYASI = os.path.join(KLASOR, "ayarlar.json")
 
 BOLGE_SAYISI = 8
 TOPLAM_GENISLIK = 18.5  # klavyenin tus genisligi cinsinden toplam genisligi
 SOL_BOSLUK = 0.0
 MIN_KALINLIK = 0.8      # bunun altinda titreme yapiyor
 
-VARSAYILAN = {
-    "hiz": 8.0,                 # dalganin yayilma hizi (bolge/saniye)
-    "kalinlik": 1.6,            # dalga halkasinin kalinligi (bolge), en az 0.8
-    "parlaklik": 100,           # dalga parlakligi, yuzde 5-100
-    "mod": "gokkusagi",         # "gokkusagi" ya da "sabit"
-    "renk": "#00d4ff",          # sabit mod rengi
-    "bekleme_acik": False,      # bekleme isigi acik mi
-    "bekleme_renk": "#3b1fa3",  # bekleme isigi rengi
-    "bekleme_parlaklik": 35,    # bekleme isigi parlakligi, yuzde 1-100
-    "omur": 0.55,               # dalganin sonme suresi (saniye)  [sadece dosyadan]
-    "fps": 25,                  # kare hizi                       [sadece dosyadan]
-    "max_dalga": 8,             # ayni anda en fazla dalga        [sadece dosyadan]
-}
 
-HEX = re.compile(r"^#[0-9a-fA-F]{6}$")
+# bu fonksiyon var olan kod yapısının bozulmaması için şimdilik silinmemiştir
+def ayar_yukle() -> AppConfig:
+    return AppConfig.get_config()
 
-
-# ---------------------------- AYARLAR ----------------------------
-def ayar_temizle(ayar):
-    """Dosyadan gelen bozuk / eski degerleri duzeltir."""
-    for k, alt, ust in (
-        ("hiz", 2.0, 20.0),
-        ("kalinlik", MIN_KALINLIK, 4.0),
-        ("parlaklik", 5, 100),
-        ("bekleme_parlaklik", 1, 100),
-    ):
-        try:
-            v = float(ayar[k])
-        except Exception:
-            v = VARSAYILAN[k]
-        v = max(alt, min(ust, v))
-        ayar[k] = int(round(v)) if k.endswith("parlaklik") else round(v, 2)
-    for k in ("renk", "bekleme_renk"):
-        if not (isinstance(ayar[k], str) and HEX.match(ayar[k])):
-            ayar[k] = VARSAYILAN[k]
-    if ayar["mod"] not in ("gokkusagi", "sabit"):
-        ayar["mod"] = VARSAYILAN["mod"]
-    ayar["bekleme_acik"] = bool(ayar["bekleme_acik"])
-    return ayar
-
-
-def ayar_yukle():
-    ayar = dict(VARSAYILAN)
-    try:
-        with open(AYAR_DOSYASI, "r", encoding="utf-8") as f:
-            kayitli = json.load(f)
-        for k in VARSAYILAN:
-            if k in kayitli:
-                ayar[k] = kayitli[k]
-    except Exception:
-        pass
-    return ayar_temizle(ayar)
-
-
-def ayar_kaydet(ayar):
-    try:
-        with open(AYAR_DOSYASI, "w", encoding="utf-8") as f:
-            json.dump(ayar, f, indent=2, ensure_ascii=False)
-    except Exception:
-        pass
+# bu fonksiyon var olan kod yapısının bozulmaması için şimdilik silinmemiştir
+def ayar_kaydet(config: AppConfig) -> None:
+    config.set_config()
 
 
 def hex_rgb(h):
     h = h.lstrip("#")
     return tuple(int(h[i:i + 2], 16) for i in (0, 2, 4))
-
 
 def rgb_hex(r, g, b):
     return "#%02x%02x%02x" % tuple(max(0, min(255, int(v))) for v in (r, g, b))
@@ -153,22 +98,22 @@ def bolge_bul(scan_code):
     return min(max(oran * BOLGE_SAYISI, 0), BOLGE_SAYISI - 1e-6)
 
 
-def bekleme_rengi(ayar):
+def bekleme_rengi(ayar: AppConfig):
     """Bekleme isigi aciksa (R,G,B) float, kapaliysa siyah."""
-    if not ayar.get("bekleme_acik"):
+    if not ayar.bekleme_acik:
         return (0.0, 0.0, 0.0)
-    r, g, b = hex_rgb(ayar["bekleme_renk"])
-    k = max(0.0, min(1.0, float(ayar["bekleme_parlaklik"]) / 100.0))
+    r, g, b = hex_rgb(ayar.bekleme_renk)
+    k = max(0.0, min(1.0, float(ayar.bekleme_parlaklik) / 100.0))
     return (r * k, g * k, b * k)
 
 
-def kare_hesapla(aktif, simdi, ayar):
+def kare_hesapla(aktif, simdi, ayar: AppConfig):
     """Verilen dalgalar icin 8 bolgenin (R,G,B) degerlerini hesaplar."""
     n = BOLGE_SAYISI
-    hiz = float(ayar["hiz"])
-    kalinlik = max(MIN_KALINLIK, float(ayar["kalinlik"]))
-    omur = max(0.05, float(ayar["omur"]))
-    parlaklik = max(0.0, min(1.0, float(ayar["parlaklik"]) / 100.0))
+    hiz = float(ayar.hiz)
+    kalinlik = max(MIN_KALINLIK, float(ayar.kalinlik))
+    omur = max(0.05, float(ayar.omur))
+    parlaklik = max(0.0, min(1.0, float(ayar.parlaklik) / 100.0))
     taban = bekleme_rengi(ayar)
     toplam = [list(taban) for _ in range(n)]
     for merkez, basla, (r, g, b) in aktif:
@@ -194,7 +139,7 @@ def kare_hesapla(aktif, simdi, ayar):
 class Motor:
     """Tus dinler, dalgalari hesaplar, klavyeye gonderir (arka planda)."""
 
-    def __init__(self, ayar):
+    def __init__(self, ayar: AppConfig):
         self.ayar = ayar
         self.kb = ApexKlavye()
         self.kilit = threading.Lock()
@@ -208,8 +153,8 @@ class Motor:
         self.durum_hata = False
 
     def _renk_sec(self):
-        if self.ayar["mod"] == "sabit":
-            return hex_rgb(self.ayar["renk"])
+        if self.ayar.mod == "sabit":
+            return hex_rgb(self.ayar.renk)
         self.hue = (self.hue + 0.06) % 1.0
         r, g, b = colorsys.hsv_to_rgb(self.hue, 1.0, 1.0)
         return (int(r * 255), int(g * 255), int(b * 255))
@@ -222,7 +167,7 @@ class Motor:
             return
         with self.kilit:
             self.dalgalar.append((merkez, time.time(), self._renk_sec()))
-            del self.dalgalar[: -max(1, int(self.ayar["max_dalga"]))]
+            del self.dalgalar[: -max(1, int(self.ayar.max_dalga))]
 
     def baslat(self):
         if self.calisiyor:
@@ -266,8 +211,8 @@ class Motor:
         son_gonderilen = None
         while not self.durdur_ev.is_set():
             t0 = time.time()
-            aralik = 1.0 / max(5, int(self.ayar["fps"]))
-            omur = max(0.05, float(self.ayar["omur"]))
+            aralik = 1.0 / max(5, int(self.ayar.fps))
+            omur = max(0.05, float(self.ayar.omur))
             with self.kilit:
                 self.dalgalar[:] = [d for d in self.dalgalar if t0 - d[1] < omur * 2.5]
                 aktif = list(self.dalgalar)
@@ -713,11 +658,11 @@ class Uygulama:
             side="left", padx=(px(8), 0))
         self.segment = Segment(
             k2, [("Gökkuşağı", "gokkusagi"), ("Sabit renk", "sabit")],
-            self.ayar["mod"], self._mod_degisti, KART)
+            self.ayar.mod, self._mod_degisti, KART)
         self.segment.pack(fill="x", padx=px(16), pady=(px(10), 0))
         renk_satir = tk.Frame(k2, bg=KART)
         renk_satir.pack(fill="x", padx=px(16), pady=(px(12), px(16)))
-        self.ornek = Ornek(renk_satir, self.ayar["renk"], self._renk_sec, KART)
+        self.ornek = Ornek(renk_satir, self.ayar.renk, self._renk_sec, KART)
         self.ornek.pack(side="left")
         self.renk_dugme = Dugme(renk_satir, "Renk seç", self._renk_sec, KART, TRACK, TRACK,
                                 yukseklik=34, genislik=110, font=(FONT, 10, "bold"), yazi=FG)
@@ -729,11 +674,11 @@ class Uygulama:
         Ikon(satir, "ay", C2, KART).pack(side="left")
         tk.Label(satir, text="Bekleme ışığı", font=(FONT, 10, "bold"), fg=FG, bg=KART).pack(
             side="left", padx=(px(8), 0))
-        self.bek_anahtar = Anahtar(satir, self.ayar["bekleme_acik"], self._bek_ac, KART)
+        self.bek_anahtar = Anahtar(satir, self.ayar.bekleme_acik, self._bek_ac, KART)
         self.bek_anahtar.pack(side="right")
         bek_satir = tk.Frame(k3, bg=KART)
         bek_satir.pack(fill="x", padx=px(16), pady=(px(12), 0))
-        self.bek_ornek = Ornek(bek_satir, self.ayar["bekleme_renk"], self._bek_renk_sec, KART)
+        self.bek_ornek = Ornek(bek_satir, self.ayar.bekleme_renk, self._bek_renk_sec, KART)
         self.bek_ornek.pack(side="left")
         self.bek_dugme = Dugme(bek_satir, "Renk seç", self._bek_renk_sec, KART, TRACK, TRACK,
                                yukseklik=34, genislik=110, font=(FONT, 10, "bold"), yazi=FG)
@@ -767,31 +712,31 @@ class Uygulama:
         Ikon(ust_satir, ikon_ad, C1, KART).pack(side="left")
         tk.Label(ust_satir, text=ad, font=(FONT, 10, "bold"), fg=FG, bg=KART).pack(
             side="left", padx=(px(8), 0))
-        deger = tk.Label(ust_satir, text=bicim(self.ayar[anahtar]), font=(FONT, 10, "bold"),
+        deger = tk.Label(ust_satir, text=bicim(getattr(self.ayar, anahtar)), font=(FONT, 10, "bold"),
                          fg=C1, bg=KART)
         deger.pack(side="right")
 
         def degisti(v):
             v = int(round(v)) if tamsayi else round(float(v), 2)
-            self.ayar[anahtar] = v
+            setattr(self.ayar, anahtar, v)
             deger.config(text=bicim(v))
             self._kaydet_planla()
 
-        k = Kaydirici(cerceve, alt, ust, adim, self.ayar[anahtar], degisti, KART)
+        k = Kaydirici(cerceve, alt, ust, adim, getattr(self.ayar, anahtar), degisti, KART)
         k.pack(fill="x", pady=(px(2), 0))
         return k, deger
 
     # --- gorunum / olaylar ---
     def _gorunum_senkron(self):
-        sabit = self.ayar["mod"] == "sabit"
+        sabit = self.ayar.mod == "sabit"
         self.ornek.gokkusagi = not sabit
-        self.ornek.renk = self.ayar["renk"]
+        self.ornek.renk = self.ayar.renk
         self.ornek.ciz()
         self.renk_dugme.aktif = sabit
         self.renk_dugme.ciz()
-        acik = self.ayar["bekleme_acik"]
+        acik = self.ayar.bekleme_acik
         self.bek_ornek.aktif = acik
-        self.bek_ornek.renk = self.ayar["bekleme_renk"]
+        self.bek_ornek.renk = self.ayar.bekleme_renk
         self.bek_ornek.ciz()
         self.bek_dugme.aktif = acik
         self.bek_dugme.ciz()
@@ -804,28 +749,28 @@ class Uygulama:
         self._kayit_zamanlayici = self.root.after(400, lambda: ayar_kaydet(self.ayar))
 
     def _mod_degisti(self, deger):
-        self.ayar["mod"] = deger
+        self.ayar.mod = deger
         self._gorunum_senkron()
         self._kaydet_planla()
 
     def _renk_sec(self):
-        sonuc = colorchooser.askcolor(color=self.ayar["renk"], title="Dalga rengi")
+        sonuc = colorchooser.askcolor(color=self.ayar.renk, title="Dalga rengi")
         if sonuc and sonuc[1]:
-            self.ayar["renk"] = sonuc[1]
+            self.ayar.renk = sonuc[1]
             self._gorunum_senkron()
             self._kaydet_planla()
 
     def _bek_ac(self, deger):
-        self.ayar["bekleme_acik"] = bool(deger)
+        self.ayar.bekleme_acik = bool(deger)
         self._gorunum_senkron()
         self._kaydet_planla()
 
     def _bek_renk_sec(self):
-        if not self.ayar["bekleme_acik"]:
+        if not self.ayar.bekleme_acik:
             return
-        sonuc = colorchooser.askcolor(color=self.ayar["bekleme_renk"], title="Bekleme ışığı rengi")
+        sonuc = colorchooser.askcolor(color=self.ayar.bekleme_renk, title="Bekleme ışığı rengi")
         if sonuc and sonuc[1]:
-            self.ayar["bekleme_renk"] = sonuc[1]
+            self.ayar.bekleme_renk = sonuc[1]
             self._gorunum_senkron()
             self._kaydet_planla()
 
