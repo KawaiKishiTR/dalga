@@ -5,6 +5,8 @@ Sadece Windows'un kendi DLL'lerini kullanir (ctypes). pip install GEREKMEZ.
 
 import ctypes
 
+from app.common.rgbdata import RGBData
+
 VID = 0x1038
 PID = 0x1622  # Apex 3 TKL
 
@@ -168,13 +170,13 @@ def cihazlari_bul():
     return sonuc
 
 
-def paket(renkler):
+def paket(renkler:list[RGBData]):
     """[rapor_id=0, komut=0x21, bolge_maskesi=0xFF, 8 x (R,G,B), sifirlar] = 65 bayt"""
     p = bytearray(65)
     p[1] = 0x21
     p[2] = 0xFF
-    for i, (r, g, b) in enumerate(renkler[:8]):
-        p[3 + 3 * i: 6 + 3 * i] = bytes((r, g, b))
+    for i, renk in enumerate(renkler[:8]):
+        p[3 + 3 * i: 6 + 3 * i] = bytes(renk.to_tuple_round())
     return bytes(p)
 
 
@@ -200,7 +202,7 @@ class ApexKlavye:
                 return True
         return False
 
-    def renk_gonder(self, renkler):
+    def renk_gonder(self, renkler: list[RGBData]):
         """8 bolgenin renklerini gonderir. Basarili ise True."""
         if self.h is None and not self.baglan():
             return False

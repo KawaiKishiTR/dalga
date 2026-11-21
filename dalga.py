@@ -7,10 +7,9 @@ Gerekenler:
 
 Calistirmadan once SteelSeries GG ve OpenRGB KAPALI olsun.
 Calistir:  python main.py
-Ayarlar, ayni klasordeki config/config.yml dosyasina otomatik kaydedilir.
+Ayarlar, ayni klasordeki config/{model_adı}.yml dosyasina otomatik kaydedilir.
 """
 
-import colorsys
 import math
 import os
 import threading
@@ -21,9 +20,10 @@ from tkinter import colorchooser
 
 import keyboard
 
-from config.models.app_config import AppConfig
+from app.common.rgbdata import RGBData
+from app.config.models import AppConfig
+from app.locale.manager import LocaleManager
 from apex_hid import ApexKlavye
-from locales.manager import LocaleManager
 
 SURUM = "v0.4"
 KLASOR = os.path.dirname(os.path.abspath(__file__))
@@ -34,27 +34,23 @@ SOL_BOSLUK = 0.0
 MIN_KALINLIK = 0.8      # bunun altinda titreme yapiyor
 
 
-# bu fonksiyon var olan kod yapısının bozulmaması için şimdilik silinmemiştir
-def ayar_yukle() -> AppConfig:
-    return AppConfig.get_config()
+# ----------------------------- TASARIM -----------------------------
+BG = RGBData.from_hex("#0a0a12")
+KART = RGBData.from_hex("#13131f")
+KENAR = RGBData.from_hex("#232338")
+TRACK = RGBData.from_hex("#25253a")
+DEVRE = RGBData.from_hex("#3a3a52")
+FG = RGBData.from_hex("#eceaf8")
+DIM = RGBData.from_hex("#7c7a99")
+C1 = RGBData.from_hex("#00d4ff")   # camgobegi
+C2 = RGBData.from_hex("#8b5cff")   # mor
+DUR1 = RGBData.from_hex("#ff6b8a")
+DUR2 = RGBData.from_hex("#ff2d6f")
+YESIL = RGBData.from_hex("#3ddc97")
+HATA = RGBData.from_hex("#ff5d73")
+FONT = "Segoe UI"
 
-# bu fonksiyon var olan kod yapısının bozulmaması için şimdilik silinmemiştir
-def ayar_kaydet(config: AppConfig) -> None:
-    config.set_config()
-
-
-def hex_rgb(h):
-    h = h.lstrip("#")
-    return tuple(int(h[i:i + 2], 16) for i in (0, 2, 4))
-
-def rgb_hex(r, g, b):
-    return "#%02x%02x%02x" % tuple(max(0, min(255, int(v))) for v in (r, g, b))
-
-
-def lerp(c1, c2, t):
-    t = max(0.0, min(1.0, t))
-    a, b = hex_rgb(c1), hex_rgb(c2)
-    return rgb_hex(*(a[i] + (b[i] - a[i]) * t for i in range(3)))
+OLCEK = 1.0  # ekran olcegi (main icinde ayarlanir)
 
 
 # ------------------------- TUS KONUMLARI -------------------------
@@ -99,16 +95,14 @@ def bolge_bul(scan_code):
     return min(max(oran * BOLGE_SAYISI, 0), BOLGE_SAYISI - 1e-6)
 
 
-def bekleme_rengi(ayar: AppConfig):
+def bekleme_rengi(ayar: AppConfig) -> RGBData:
     """Bekleme isigi aciksa (R,G,B) float, kapaliysa siyah."""
     if not ayar.bekleme_acik:
-        return (0.0, 0.0, 0.0)
-    r, g, b = hex_rgb(ayar.bekleme_renk)
-    k = max(0.0, min(1.0, float(ayar.bekleme_parlaklik) / 100.0))
-    return (r * k, g * k, b * k)
+        return RGBData(r=0, g=0, b=0)
+    return ayar.bekleme_renk * (ayar.bekleme_parlaklik / 100.0)
 
 
-def kare_hesapla(aktif, simdi, ayar: AppConfig):
+def kare_hesapla(aktif, simdi, ayar: AppConfig) -> list[RGBData]:
     """Verilen dalgalar icin 8 bolgenin (R,G,B) degerlerini hesaplar."""
     n = BOLGE_SAYISI
     hiz = float(ayar.hiz)
@@ -116,8 +110,8 @@ def kare_hesapla(aktif, simdi, ayar: AppConfig):
     omur = max(0.05, float(ayar.omur))
     parlaklik = max(0.0, min(1.0, float(ayar.parlaklik) / 100.0))
     taban = bekleme_rengi(ayar)
-    toplam = [list(taban) for _ in range(n)]
-    for merkez, basla, (r, g, b) in aktif:
+    toplam = [list(taban.to_tuple()) for _ in range(n)]
+    for merkez, basla, renk in aktif:
         yas = simdi - basla
         yaricap = yas * hiz
         sonum = math.exp(-yas / omur)
@@ -128,12 +122,13 @@ def kare_hesapla(aktif, simdi, ayar: AppConfig):
             if yas < 0.08 and mesafe < 0.8:  # basilan yer ilk anda parlasin
                 siddet = 1.0
             v = siddet * sonum * parlaklik
-            toplam[z][0] += r * v
-            toplam[z][1] += g * v
-            toplam[z][2] += b * v
-    return tuple(
-        (min(255, int(c[0])), min(255, int(c[1])), min(255, int(c[2]))) for c in toplam
-    )
+            toplam[z][0] += renk.r * v
+            toplam[z][1] += renk.g * v
+            toplam[z][2] += renk.b * v
+    return [
+        RGBData(r=int(c[0]), g=int(c[1]), b=int(c[2]))
+        for c in toplam
+    ]
 
 
 # ------------------------------ MOTOR ------------------------------
@@ -153,12 +148,11 @@ class Motor:
         self.durum = LocaleManager().status.stopped
         self.durum_hata = False
 
-    def _renk_sec(self):
+    def _renk_sec(self) -> RGBData:
         if self.ayar.mod == "sabit":
-            return hex_rgb(self.ayar.renk)
+            return self.ayar.renk
         self.hue = (self.hue + 0.06) % 1.0
-        r, g, b = colorsys.hsv_to_rgb(self.hue, 1.0, 1.0)
-        return (int(r * 255), int(g * 255), int(b * 255))
+        return RGBData.from_hsv(self.hue, 1.0, 1.0)
 
     def _tus(self, olay):
         if olay.event_type != "down":
@@ -200,7 +194,7 @@ class Motor:
             pass
         self._hook = None
         try:
-            self.kb.renk_gonder([(0, 0, 0)] * BOLGE_SAYISI)
+            self.kb.renk_gonder([RGBData(r=0,g=0,b=0)] * BOLGE_SAYISI)
         except Exception:
             pass
         self.kb.kapat()
@@ -221,7 +215,7 @@ class Motor:
             kare = kare_hesapla(aktif, t0, self.ayar)
 
             if kare != son_gonderilen:  # sadece isiklar degistiyse gonder
-                if self.kb.renk_gonder(list(kare)):
+                if self.kb.renk_gonder(kare):
                     son_gonderilen = kare
                     self.durum = LocaleManager().status.running
                     self.durum_hata = False
@@ -237,22 +231,6 @@ class Motor:
 
 
 # ----------------------------- TASARIM -----------------------------
-BG = "#0a0a12"
-KART = "#13131f"
-KENAR = "#232338"
-TRACK = "#25253a"
-DEVRE = "#3a3a52"
-FG = "#eceaf8"
-DIM = "#7c7a99"
-C1 = "#00d4ff"   # camgobegi
-C2 = "#8b5cff"   # mor
-DUR1 = "#ff6b8a"
-DUR2 = "#ff2d6f"
-YESIL = "#3ddc97"
-HATA = "#ff5d73"
-FONT = "Segoe UI"
-
-OLCEK = 1.0  # ekran olcegi (main icinde ayarlanir)
 
 
 def px(v):
@@ -338,8 +316,8 @@ class Ikon(tk.Canvas):
 class Baslik(tk.Canvas):
     """Ust kisim: rozet + gradyan 'DALGA' + surum."""
 
-    def __init__(self, ebeveyn, bg):
-        super().__init__(ebeveyn, height=px(98), bg=bg, highlightthickness=0, bd=0)
+    def __init__(self, ebeveyn, bg:RGBData):
+        super().__init__(ebeveyn, height=px(98), bg=bg.to_hex(), highlightthickness=0, bd=0)
         self.bind("<Configure>", lambda e: self.ciz())
 
     def ciz(self):
@@ -351,34 +329,34 @@ class Baslik(tk.Canvas):
         pad = px(22)
         b = px(52)
         cy = px(40)
-        self.create_oval(pad, cy - b / 2, pad + b, cy + b / 2, fill=KART, outline=C1, width=2)
+        self.create_oval(pad, cy - b / 2, pad + b, cy + b / 2, fill=KART.to_hex(), outline=C1.to_hex(), width=2)
         self.create_oval(pad + px(4), cy - b / 2 + px(4), pad + b - px(4), cy + b / 2 - px(4),
-                         fill=KART, outline=C2, width=1)
-        ikon_ciz(self, "dalga", pad + b / 2, cy, b * 0.27, C1, KART)
+                         fill=KART.to_hex(), outline=C2.to_hex(), width=1)
+        ikon_ciz(self, "dalga", pad + b / 2, cy, b * 0.27, C1.to_hex(), KART.to_hex())
 
         font = tkfont.Font(family=FONT, size=30, weight="bold")
         x = pad + b + px(16)
         for i, ch in enumerate("DALGA"): # uygulama ismi kasıtlı olarak çevirilmemiştir
-            self.create_text(x, cy, text=ch, font=font, fill=lerp(C1, C2, i / 4), anchor="w")
+            self.create_text(x, cy, text=ch, font=font, fill=C1.lerp(C2, i/4).to_hex(), anchor="w")
             x += font.measure(ch)
         asc = font.metrics("ascent")
         desc = font.metrics("descent")
         taban = cy + (asc - desc) / 2
-        self.create_text(x + px(8), taban, text=SURUM, font=(FONT, 11), fill=DIM, anchor="sw")
+        self.create_text(x + px(8), taban, text=SURUM, font=(FONT, 11), fill=DIM.to_hex(), anchor="sw")
         self.create_text(pad, px(84), text=LocaleManager().header.subtitle,
-                         font=(FONT, 9), fill=DIM, anchor="w")
-        self.create_line(pad, h - 1, w - pad, h - 1, fill=KENAR)
+                         font=(FONT, 9), fill=DIM.to_hex(), anchor="w")
+        self.create_line(pad, h - 1, w - pad, h - 1, fill=KENAR.to_hex())
 
 
 class Kaydirici(tk.Canvas):
     """Gradyan dolgulu, parlayan topuzlu kaydirici."""
 
-    def __init__(self, ebeveyn, alt, ust, adim, deger, komut, bg):
-        super().__init__(ebeveyn, height=px(30), bg=bg, highlightthickness=0, bd=0, cursor="hand2")
+    def __init__(self, ebeveyn, alt, ust, adim, deger, komut, bg:RGBData):
+        super().__init__(ebeveyn, height=px(30), bg=bg.to_hex(), highlightthickness=0, bd=0, cursor="hand2")
         self.alt, self.ust, self.adim = alt, ust, adim
         self.deger = deger
         self.komut = komut
-        self.bgc = bg
+        self.bgc:RGBData = bg
         self.aktif = True
         self.bind("<Configure>", lambda e: self.ciz())
         self.bind("<Button-1>", self._tikla)
@@ -399,20 +377,20 @@ class Kaydirici(tk.Canvas):
         xv = x0 + (x1 - x0) * oran
         c1, c2 = (C1, C2) if self.aktif else (DEVRE, DEVRE)
 
-        self.create_line(x0, y, x1, y, width=kal, capstyle="round", fill=TRACK)
+        self.create_line(x0, y, x1, y, width=kal, capstyle="round", fill=TRACK.to_hex())
         if xv > x0 + 1:
             n = max(2, int((xv - x0) / px(5)))
             for i in range(n):
                 a = x0 + (xv - x0) * i / n
                 b = x0 + (xv - x0) * (i + 1) / n
-                self.create_line(a, y, b + 1, y, width=kal, fill=lerp(c1, c2, (i + 0.5) / n))
-            self.create_oval(x0 - kal / 2, y - kal / 2, x0 + kal / 2, y + kal / 2, fill=c1, outline="")
+                self.create_line(a, y, b + 1, y, width=kal, fill=c1.lerp(c2, (i + 0.5) / n).to_hex())
+            self.create_oval(x0 - kal / 2, y - kal / 2, x0 + kal / 2, y + kal / 2, fill=c1.to_hex(), outline="")
         r = px(9)
-        topuz = lerp(c1, c2, oran)
+        topuz = c1.lerp(c2, oran)
         self.create_oval(xv - r - px(4), y - r - px(4), xv + r + px(4), y + r + px(4),
-                         fill=lerp(self.bgc, topuz, 0.22), outline="")
+                         fill=self.bgc.lerp(topuz, 0.22).to_hex(), outline="")
         self.create_oval(xv - r, y - r, xv + r, y + r, fill="#ffffff" if self.aktif else "#9a9ab0",
-                         outline=topuz, width=2)
+                         outline=topuz.to_hex(), width=2)
 
     def _tikla(self, e):
         if not self.aktif:
@@ -433,9 +411,9 @@ class Kaydirici(tk.Canvas):
 class Anahtar(tk.Canvas):
     """Ac/kapa anahtari."""
 
-    def __init__(self, ebeveyn, deger, komut, bg):
+    def __init__(self, ebeveyn, deger, komut, bg:RGBData):
         self.gen, self.yuk = px(48), px(26)
-        super().__init__(ebeveyn, width=self.gen, height=self.yuk, bg=bg,
+        super().__init__(ebeveyn, width=self.gen, height=self.yuk, bg=bg.to_hex(),
                          highlightthickness=0, bd=0, cursor="hand2")
         self.deger = bool(deger)
         self.komut = komut
@@ -447,13 +425,13 @@ class Anahtar(tk.Canvas):
         w, h = self.gen, self.yuk
         if self.deger:
             # gradyan kapsul
-            self.create_oval(0, 0, h, h, fill=C1, outline="")
-            self.create_oval(w - h, 0, w, h, fill=C2, outline="")
+            self.create_oval(0, 0, h, h, fill=C1.to_hex(), outline="")
+            self.create_oval(w - h, 0, w, h, fill=C2.to_hex(), outline="")
             x, xe = int(h / 2), int(w - h / 2)
             for i in range(x, xe, 2):
-                self.create_line(i, 0, i, h, fill=lerp(C1, C2, (i - x) / max(1, xe - x)), width=3)
+                self.create_line(i, 0, i, h, fill=C1.lerp(C2, (i - x) / max(1, xe - x)).to_hex(), width=3)
         else:
-            yuvarlak(self, 0, 0, w, h, h / 2, fill=TRACK, outline="")
+            yuvarlak(self, 0, 0, w, h, h / 2, fill=TRACK.to_hex(), outline="")
         r = h / 2 - px(3)
         kx = w - h / 2 if self.deger else h / 2
         self.create_oval(kx - r, h / 2 - r, kx + r, h / 2 + r,
@@ -468,8 +446,8 @@ class Anahtar(tk.Canvas):
 class Segment(tk.Canvas):
     """Iki secenekli kapsul secici."""
 
-    def __init__(self, ebeveyn, secenekler, secili, komut, bg):
-        super().__init__(ebeveyn, height=px(38), bg=bg, highlightthickness=0, bd=0, cursor="hand2")
+    def __init__(self, ebeveyn, secenekler, secili, komut, bg:RGBData):
+        super().__init__(ebeveyn, height=px(38), bg=bg.to_hex(), highlightthickness=0, bd=0, cursor="hand2")
         self.secenekler = secenekler
         self.secili = secili
         self.komut = komut
@@ -482,7 +460,7 @@ class Segment(tk.Canvas):
         h = self.winfo_height()
         if w <= 2:
             return
-        yuvarlak(self, 0, 0, w, h, h / 2, fill=TRACK, outline="")
+        yuvarlak(self, 0, 0, w, h, h / 2, fill=TRACK.to_hex(), outline="")
         n = len(self.secenekler)
         pw = w / float(n)
         for i, (metin, deger) in enumerate(self.secenekler):
@@ -490,9 +468,9 @@ class Segment(tk.Canvas):
             sec = deger == self.secili
             if sec:
                 yuvarlak(self, x1, px(3), x2, h - px(3), (h - px(6)) / 2,
-                         fill=lerp(C1, C2, 0.2 + 0.6 * (i / max(1, n - 1))), outline="")
+                         fill=C1.lerp(C2, 0.2 + 0.6 * (i / max(1, n - 1))).to_hex(), outline="")
             self.create_text((x1 + x2) / 2, h / 2, text=metin, font=(FONT, 10, "bold"),
-                             fill="#ffffff" if sec else DIM)
+                             fill="#ffffff" if sec else DIM.to_hex())
 
     def _tikla(self, e):
         w = max(1, self.winfo_width())
@@ -507,10 +485,10 @@ class Segment(tk.Canvas):
 class Dugme(tk.Canvas):
     """Gradyan kapsul dugme (istege bagli simgeli)."""
 
-    def __init__(self, ebeveyn, metin, komut, bg, c1, c2, yukseklik=46, genislik=None,
-                 ikon=None, font=None, yazi="#ffffff"):
+    def __init__(self, ebeveyn, metin, komut, bg:RGBData, c1:RGBData, c2:RGBData, yukseklik=46, genislik=None,
+                 ikon=None, font=None, yazi:RGBData = RGBData.from_hex("#ffffff")):
         kw = {"width": px(genislik)} if genislik else {}
-        super().__init__(ebeveyn, height=px(yukseklik), bg=bg, highlightthickness=0, bd=0,
+        super().__init__(ebeveyn, height=px(yukseklik), bg=bg.to_hex(), highlightthickness=0, bd=0,
                          cursor="hand2", **kw)
         self.metin, self.komut, self.bgc = metin, komut, bg
         self.c1, self.c2, self.ikon = c1, c2, ikon
@@ -523,7 +501,7 @@ class Dugme(tk.Canvas):
         self.bind("<Leave>", self._cik)
         self.bind("<Button-1>", self._tikla)
 
-    def ayarla(self, metin=None, c1=None, c2=None, ikon=None):
+    def ayarla(self, metin=None, c1:RGBData = None, c2:RGBData = None, ikon=None):
         if metin is not None:
             self.metin = metin
         if c1 is not None:
@@ -544,24 +522,25 @@ class Dugme(tk.Canvas):
         if not self.aktif:
             c1 = c2 = DEVRE
         elif self.hover:
-            c1, c2 = lerp(c1, "#ffffff", 0.14), lerp(c2, "#ffffff", 0.14)
-        self.create_oval(0, 0, h, h, fill=c1, outline="")
-        self.create_oval(w - h, 0, w, h, fill=c2, outline="")
+            c1 = c1.lerp(RGBData(r=255,g=255,b=255), 0.14)
+            c2 = c2.lerp(RGBData(r=255,g=255,b=255), 0.14)
+        self.create_oval(0, 0, h, h, fill=c1.to_hex(), outline="")
+        self.create_oval(w - h, 0, w, h, fill=c2.to_hex(), outline="")
         x, xe = int(h / 2), int(w - h / 2)
         span = max(1, xe - x)
         for i in range(x, xe, 2):
-            self.create_line(i, 0, i, h, fill=lerp(c1, c2, (i - x) / span), width=3)
+            self.create_line(i, 0, i, h, fill=c1.lerp(c2, (i - x) / span).to_hex(), width=3)
 
-        yazi = self.yazi if self.aktif else "#7a7a92"
+        yazi = self.yazi if self.aktif else RGBData.from_hex("#7a7a92")
         tw = tkfont.Font(font=self.font).measure(self.metin)
         s = px(8)
         bosluk = px(10)
         toplam = tw + (2 * s + bosluk if self.ikon else 0)
         bx = (w - toplam) / 2
         if self.ikon:
-            ikon_ciz(self, self.ikon, bx + s, h / 2, s, yazi, c1)
+            ikon_ciz(self, self.ikon, bx + s, h / 2, s, yazi.to_hex(), c1.to_hex())
             bx += 2 * s + bosluk
-        self.create_text(bx, h / 2, text=self.metin, font=self.font, fill=yazi, anchor="w")
+        self.create_text(bx, h / 2, text=self.metin, font=self.font, fill=yazi.to_hex(), anchor="w")
 
     def _gir(self, e):
         self.hover = True
@@ -579,9 +558,9 @@ class Dugme(tk.Canvas):
 class Ornek(tk.Canvas):
     """Renk ornegi (yuvarlak). Gokkusagi modunda gokkusagi diski gosterir."""
 
-    def __init__(self, ebeveyn, renk, komut, bg, boyut=36):
+    def __init__(self, ebeveyn, renk:RGBData, komut, bg:RGBData, boyut=36):
         self.b = px(boyut)
-        super().__init__(ebeveyn, width=self.b, height=self.b, bg=bg,
+        super().__init__(ebeveyn, width=self.b, height=self.b, bg=bg.to_hex(),
                          highlightthickness=0, bd=0, cursor="hand2")
         self.renk, self.komut = renk, komut
         self.gokkusagi = False
@@ -594,11 +573,10 @@ class Ornek(tk.Canvas):
         b, m = self.b, px(4)
         if self.gokkusagi:
             for i in range(12):
-                r, g, bl = colorsys.hsv_to_rgb(i / 12.0, 1.0, 1.0)
                 self.create_arc(m, m, b - m, b - m, start=i * 30, extent=30,
-                                fill=rgb_hex(r * 255, g * 255, bl * 255), outline="")
+                                fill=RGBData.from_hsv(i / 12.0, 1.0, 1.0).to_hex(), outline="")
         else:
-            self.create_oval(m, m, b - m, b - m, fill=self.renk if self.aktif else DEVRE, outline="")
+            self.create_oval(m, m, b - m, b - m, fill=self.renk.to_hex() if self.aktif else DEVRE.to_hex(), outline="")
         self.create_oval(1, 1, b - 1, b - 1, outline="#3a3a58", width=2)
 
     def _tikla(self, e):
@@ -608,26 +586,26 @@ class Ornek(tk.Canvas):
 
 # ----------------------------- ARAYUZ -----------------------------
 class Uygulama:
-    def __init__(self, root):
+    def __init__(self, root: tk.Tk):
         self.root = root
-        self.ayar = ayar_yukle()
+        self.ayar:AppConfig = AppConfig.get_config()
         LocaleManager.set_language(self.ayar.dil)
         self.motor = Motor(self.ayar)
         self._kayit_zamanlayici = None
 
         root.title(f"DALGA {SURUM}")
-        root.configure(bg=BG)
+        root.configure(bg=BG.to_hex())
         root.resizable(False, False)
 
         Baslik(root, BG).pack(fill="x")
 
-        govde = tk.Frame(root, bg=BG)
+        govde = tk.Frame(root, bg=BG.to_hex())
         govde.pack(fill="both", expand=True, padx=px(20), pady=(px(14), px(20)))
         govde.columnconfigure(0, weight=1, uniform="k")
         govde.columnconfigure(1, weight=1, uniform="k")
-        sol = tk.Frame(govde, bg=BG)
+        sol = tk.Frame(govde, bg=BG.to_hex())
         sol.grid(row=0, column=0, sticky="nsew", padx=(0, px(9)))
-        sag = tk.Frame(govde, bg=BG)
+        sag = tk.Frame(govde, bg=BG.to_hex())
         sag.grid(row=0, column=1, sticky="nsew", padx=(px(9), 0))
 
         # ===== SOL: efekt karti + baslat =====
@@ -638,31 +616,31 @@ class Uygulama:
                                lambda v: f"{float(v):.1f}", False)
         self._kaydirici_satiri(k1, "parlaklik", LocaleManager().effect.brightness, "parlaklik", 5, 100, 1,
                                lambda v: f"%{int(float(v))}", True)
-        tk.Frame(k1, height=px(14), bg=KART).pack()
+        tk.Frame(k1, height=px(14), bg=KART.to_hex()).pack()
 
         self.ana = Dugme(sol, LocaleManager().actions.start, self._ac_kapat, BG, C1, C2, yukseklik=54, ikon="oynat")
         self.ana.pack(fill="x", pady=(px(16), 0))
 
-        durum_satiri = tk.Frame(sol, bg=BG)
+        durum_satiri = tk.Frame(sol, bg=BG.to_hex())
         durum_satiri.pack(fill="x", pady=(px(12), 0))
-        Ikon(durum_satiri, "klavye", DIM, BG, boyut=20).pack(side="left")
-        self.nokta = tk.Label(durum_satiri, text="●", font=(FONT, 9), fg=DIM, bg=BG)
+        Ikon(durum_satiri, "klavye", DIM.to_hex(), BG.to_hex(), boyut=20).pack(side="left")
+        self.nokta = tk.Label(durum_satiri, text="●", font=(FONT, 9), fg=DIM.to_hex(), bg=BG.to_hex())
         self.nokta.pack(side="left", padx=(px(8), px(2)))
-        self.durum = tk.Label(durum_satiri, text=LocaleManager().status.stopped, font=(FONT, 9), fg=DIM, bg=BG)
+        self.durum = tk.Label(durum_satiri, text=LocaleManager().status.stopped, font=(FONT, 9), fg=DIM.to_hex(), bg=BG.to_hex())
         self.durum.pack(side="left")
 
         # ===== SAG: renk karti + bekleme karti =====
         k2 = self._kart(sag, LocaleManager().color.card_title)
-        satir = tk.Frame(k2, bg=KART)
+        satir = tk.Frame(k2, bg=KART.to_hex())
         satir.pack(fill="x", padx=px(16), pady=(px(10), 0))
-        Ikon(satir, "renk", C1, KART).pack(side="left")
-        tk.Label(satir, text=LocaleManager().color.wave_color, font=(FONT, 10, "bold"), fg=FG, bg=KART).pack(
+        Ikon(satir, "renk", C1.to_hex(), KART.to_hex()).pack(side="left")
+        tk.Label(satir, text=LocaleManager().color.wave_color, font=(FONT, 10, "bold"), fg=FG.to_hex(), bg=KART.to_hex()).pack(
             side="left", padx=(px(8), 0))
         self.segment = Segment(
             k2, [(LocaleManager().color.rainbow, "gokkusagi"), (LocaleManager().color.solid, "sabit")],
             self.ayar.mod, self._mod_degisti, KART)
         self.segment.pack(fill="x", padx=px(16), pady=(px(10), 0))
-        renk_satir = tk.Frame(k2, bg=KART)
+        renk_satir = tk.Frame(k2, bg=KART.to_hex())
         renk_satir.pack(fill="x", padx=px(16), pady=(px(12), px(16)))
         self.ornek = Ornek(renk_satir, self.ayar.renk, self._renk_sec, KART)
         self.ornek.pack(side="left")
@@ -671,14 +649,14 @@ class Uygulama:
         self.renk_dugme.pack(side="left", padx=(px(12), 0))
 
         k3 = self._kart(sag, LocaleManager().standby.card_title, ust_bosluk=px(16))
-        satir = tk.Frame(k3, bg=KART)
+        satir = tk.Frame(k3, bg=KART.to_hex())
         satir.pack(fill="x", padx=px(16), pady=(px(10), 0))
-        Ikon(satir, "ay", C2, KART).pack(side="left")
-        tk.Label(satir, text=LocaleManager().standby.toggle_label, font=(FONT, 10, "bold"), fg=FG, bg=KART).pack(
+        Ikon(satir, "ay", C2.to_hex(), KART.to_hex()).pack(side="left")
+        tk.Label(satir, text=LocaleManager().standby.toggle_label, font=(FONT, 10, "bold"), fg=FG.to_hex(), bg=KART.to_hex()).pack(
             side="left", padx=(px(8), 0))
         self.bek_anahtar = Anahtar(satir, self.ayar.bekleme_acik, self._bek_ac, KART)
         self.bek_anahtar.pack(side="right")
-        bek_satir = tk.Frame(k3, bg=KART)
+        bek_satir = tk.Frame(k3, bg=KART.to_hex())
         bek_satir.pack(fill="x", padx=px(16), pady=(px(12), 0))
         self.bek_ornek = Ornek(bek_satir, self.ayar.bekleme_renk, self._bek_renk_sec, KART)
         self.bek_ornek.pack(side="left")
@@ -688,7 +666,7 @@ class Uygulama:
         self.bek_slider, _ = self._kaydirici_satiri(
             k3, "parlaklik", LocaleManager().standby.brightness, "bekleme_parlaklik", 1, 100, 1,
             lambda v: f"%{int(float(v))}", True)
-        tk.Frame(k3, height=px(14), bg=KART).pack()
+        tk.Frame(k3, height=px(14), bg=KART.to_hex()).pack()
 
         self._gorunum_senkron()
 
@@ -699,23 +677,23 @@ class Uygulama:
 
     # --- yapi tasi ---
     def _kart(self, ebeveyn, baslik, ust_bosluk=0):
-        kart = tk.Frame(ebeveyn, bg=KART, highlightbackground=KENAR, highlightcolor=KENAR,
+        kart = tk.Frame(ebeveyn, bg=KART.to_hex(), highlightbackground=KENAR.to_hex(), highlightcolor=KENAR.to_hex(),
                         highlightthickness=1)
         kart.pack(fill="x", pady=(ust_bosluk, 0))
-        tk.Label(kart, text=baslik, font=(FONT, 8, "bold"), fg=DIM, bg=KART, anchor="w").pack(
+        tk.Label(kart, text=baslik, font=(FONT, 8, "bold"), fg=DIM.to_hex(), bg=KART.to_hex(), anchor="w").pack(
             fill="x", padx=px(16), pady=(px(12), 0))
         return kart
 
     def _kaydirici_satiri(self, kart, ikon_ad, ad, anahtar, alt, ust, adim, bicim, tamsayi):
-        cerceve = tk.Frame(kart, bg=KART)
+        cerceve = tk.Frame(kart, bg=KART.to_hex())
         cerceve.pack(fill="x", padx=px(16), pady=(px(10), 0))
-        ust_satir = tk.Frame(cerceve, bg=KART)
+        ust_satir = tk.Frame(cerceve, bg=KART.to_hex())
         ust_satir.pack(fill="x")
-        Ikon(ust_satir, ikon_ad, C1, KART).pack(side="left")
-        tk.Label(ust_satir, text=ad, font=(FONT, 10, "bold"), fg=FG, bg=KART).pack(
+        Ikon(ust_satir, ikon_ad, C1.to_hex(), KART.to_hex()).pack(side="left")
+        tk.Label(ust_satir, text=ad, font=(FONT, 10, "bold"), fg=FG.to_hex(), bg=KART.to_hex()).pack(
             side="left", padx=(px(8), 0))
         deger = tk.Label(ust_satir, text=bicim(getattr(self.ayar, anahtar)), font=(FONT, 10, "bold"),
-                         fg=C1, bg=KART)
+                         fg=C1.to_hex(), bg=KART.to_hex())
         deger.pack(side="right")
 
         def degisti(v):
@@ -748,7 +726,7 @@ class Uygulama:
     def _kaydet_planla(self):
         if self._kayit_zamanlayici is not None:
             self.root.after_cancel(self._kayit_zamanlayici)
-        self._kayit_zamanlayici = self.root.after(400, lambda: ayar_kaydet(self.ayar))
+        self._kayit_zamanlayici = self.root.after(400, lambda: self.ayar.set_config())
 
     def _mod_degisti(self, deger):
         self.ayar.mod = deger
@@ -756,9 +734,9 @@ class Uygulama:
         self._kaydet_planla()
 
     def _renk_sec(self):
-        sonuc = colorchooser.askcolor(color=self.ayar.renk, title=LocaleManager().color.dialog_title)
+        sonuc = colorchooser.askcolor(color=self.ayar.renk.to_hex(), title=LocaleManager().color.dialog_title)
         if sonuc and sonuc[1]:
-            self.ayar.renk = sonuc[1]
+            self.ayar.renk = RGBData.from_hex(sonuc[1])
             self._gorunum_senkron()
             self._kaydet_planla()
 
@@ -770,9 +748,9 @@ class Uygulama:
     def _bek_renk_sec(self):
         if not self.ayar.bekleme_acik:
             return
-        sonuc = colorchooser.askcolor(color=self.ayar.bekleme_renk, title=LocaleManager().standby.dialog_title)
+        sonuc = colorchooser.askcolor(color=self.ayar.bekleme_renk.to_hex(), title=LocaleManager().standby.dialog_title)
         if sonuc and sonuc[1]:
-            self.ayar.bekleme_renk = sonuc[1]
+            self.ayar.bekleme_renk = RGBData.from_hex(sonuc[1])
             self._gorunum_senkron()
             self._kaydet_planla()
 
@@ -788,18 +766,18 @@ class Uygulama:
 
     def _durum_guncelle(self):
         if self.motor.durum_hata:
-            renk = HATA
+            renk = HATA.to_hex()
         elif self.motor.calisiyor:
-            renk = YESIL
+            renk = YESIL.to_hex()
         else:
-            renk = DIM
+            renk = DIM.to_hex()
         self.nokta.config(fg=renk)
-        self.durum.config(text=self.motor.durum, fg=HATA if self.motor.durum_hata else FG if self.motor.calisiyor else DIM)
+        self.durum.config(text=self.motor.durum, fg=HATA.to_hex() if self.motor.durum_hata else FG.to_hex() if self.motor.calisiyor else DIM.to_hex())
         self.root.after(500, self._durum_guncelle)
 
     def _kapat(self):
         try:
             self.motor.durdur()
         finally:
-            ayar_kaydet(self.ayar)
+            self.ayar.set_config()
             self.root.destroy()
