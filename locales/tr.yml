@@ -1,0 +1,34 @@
+header:
+  app_name: DALGA
+  subtitle: Her tuşa bastığında ışık dalgası yayılır
+
+status:
+  stopped: Durdu
+  running: Çalışıyor
+  keyboard_not_found: Klavye bulunamadı. GG / OpenRGB kapalı mı?
+  connection_lost: Bağlantı koptu, yeniden deneniyor...
+
+effect:
+  card_title: EFEKT
+  speed: Hız
+  thickness: Kalınlık
+  brightness: Parlaklık
+
+color:
+  card_title: RENK
+  wave_color: Dalga rengi
+  rainbow: Gökkuşağı
+  solid: Sabit renk
+  pick_color: Renk seç
+  dialog_title: Dalga rengi
+
+standby:
+  card_title: BEKLEME IŞIĞI
+  toggle_label: Bekleme ışığı
+  pick_color: Renk seç
+  dialog_title: Bekleme ışığı rengi
+  brightness: Parlaklık
+
+actions:
+  start: BAŞLAT
+  stop: DURDUR

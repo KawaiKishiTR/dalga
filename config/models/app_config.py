@@ -8,6 +8,7 @@ HexColor = Annotated[str, Field(pattern=r"^#[0-9a-fA-F]{6}$")]
 
 
 class AppConfig(BaseModel):
+    dil: str = Field(default="tr")
     hiz: float = Field(default=8.0, ge=2.0, le=20.0)
     kalinlik: float = Field(default=1.6, ge=0.8, le=4.0)
     parlaklik: int = Field(default=100, ge=5, le=100)

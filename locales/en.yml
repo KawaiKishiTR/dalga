@@ -1,0 +1,34 @@
+header:
+  app_name: DALGA
+  subtitle: A wave of light spreads with every keypress
+
+status:
+  stopped: Stopped
+  running: Running
+  keyboard_not_found: Keyboard not found. Is GG / OpenRGB closed?
+  connection_lost: Connection lost, retrying...
+
+effect:
+  card_title: EFFECT
+  speed: Speed
+  thickness: Thickness
+  brightness: Brightness
+
+color:
+  card_title: COLOR
+  wave_color: Wave color
+  rainbow: Rainbow
+  solid: Solid color
+  pick_color: Pick color
+  dialog_title: Wave color
+
+standby:
+  card_title: STANDBY LIGHT
+  toggle_label: Standby light
+  pick_color: Pick color
+  dialog_title: Standby light color
+  brightness: Brightness
+
+actions:
+  start: START
+  stop: STOP

@@ -23,6 +23,7 @@ import keyboard
 
 from config.models.app_config import AppConfig
 from apex_hid import ApexKlavye
+from locales.manager import LocaleManager
 
 SURUM = "v0.4"
 KLASOR = os.path.dirname(os.path.abspath(__file__))
@@ -149,7 +150,7 @@ class Motor:
         self.thread = None
         self._hook = None
         self.calisiyor = False
-        self.durum = "Durdu"
+        self.durum = LocaleManager().status.stopped
         self.durum_hata = False
 
     def _renk_sec(self):
@@ -173,7 +174,7 @@ class Motor:
         if self.calisiyor:
             return True
         if not self.kb.baglan():
-            self.durum = "Klavye bulunamadı. GG / OpenRGB kapalı mı?"
+            self.durum = LocaleManager().status.keyboard_not_found
             self.durum_hata = True
             return False
         with self.kilit:
@@ -183,7 +184,7 @@ class Motor:
         self.thread = threading.Thread(target=self._dongu, daemon=True)
         self.thread.start()
         self.calisiyor = True
-        self.durum = "Çalışıyor"
+        self.durum = LocaleManager().status.running
         self.durum_hata = False
         return True
 
@@ -204,7 +205,7 @@ class Motor:
             pass
         self.kb.kapat()
         self.calisiyor = False
-        self.durum = "Durdu"
+        self.durum = LocaleManager().status.stopped
         self.durum_hata = False
 
     def _dongu(self):
@@ -222,10 +223,10 @@ class Motor:
             if kare != son_gonderilen:  # sadece isiklar degistiyse gonder
                 if self.kb.renk_gonder(list(kare)):
                     son_gonderilen = kare
-                    self.durum = "Çalışıyor"
+                    self.durum = LocaleManager().status.running
                     self.durum_hata = False
                 else:
-                    self.durum = "Bağlantı koptu, yeniden deneniyor..."
+                    self.durum = LocaleManager().status.connection_lost
                     self.durum_hata = True
                     son_gonderilen = None
                     self.durdur_ev.wait(0.5)
@@ -357,14 +358,14 @@ class Baslik(tk.Canvas):
 
         font = tkfont.Font(family=FONT, size=30, weight="bold")
         x = pad + b + px(16)
-        for i, ch in enumerate("DALGA"):
+        for i, ch in enumerate("DALGA"): # uygulama ismi kasıtlı olarak çevirilmemiştir
             self.create_text(x, cy, text=ch, font=font, fill=lerp(C1, C2, i / 4), anchor="w")
             x += font.measure(ch)
         asc = font.metrics("ascent")
         desc = font.metrics("descent")
         taban = cy + (asc - desc) / 2
         self.create_text(x + px(8), taban, text=SURUM, font=(FONT, 11), fill=DIM, anchor="sw")
-        self.create_text(pad, px(84), text="Her tuşa bastığında ışık dalgası yayılır",
+        self.create_text(pad, px(84), text=LocaleManager().header.subtitle,
                          font=(FONT, 9), fill=DIM, anchor="w")
         self.create_line(pad, h - 1, w - pad, h - 1, fill=KENAR)
 
@@ -610,6 +611,7 @@ class Uygulama:
     def __init__(self, root):
         self.root = root
         self.ayar = ayar_yukle()
+        LocaleManager.set_language(self.ayar.dil)
         self.motor = Motor(self.ayar)
         self._kayit_zamanlayici = None
 
@@ -629,16 +631,16 @@ class Uygulama:
         sag.grid(row=0, column=1, sticky="nsew", padx=(px(9), 0))
 
         # ===== SOL: efekt karti + baslat =====
-        k1 = self._kart(sol, "EFEKT")
-        self._kaydirici_satiri(k1, "hiz", "Hız", "hiz", 2, 20, 0.5,
+        k1 = self._kart(sol, LocaleManager().effect.card_title)
+        self._kaydirici_satiri(k1, "hiz", LocaleManager().effect.speed, "hiz", 2, 20, 0.5,
                                lambda v: f"{float(v):.1f}", False)
-        self._kaydirici_satiri(k1, "kalinlik", "Kalınlık", "kalinlik", MIN_KALINLIK, 4.0, 0.1,
+        self._kaydirici_satiri(k1, "kalinlik", LocaleManager().effect.thickness, "kalinlik", MIN_KALINLIK, 4.0, 0.1,
                                lambda v: f"{float(v):.1f}", False)
-        self._kaydirici_satiri(k1, "parlaklik", "Parlaklık", "parlaklik", 5, 100, 1,
+        self._kaydirici_satiri(k1, "parlaklik", LocaleManager().effect.brightness, "parlaklik", 5, 100, 1,
                                lambda v: f"%{int(float(v))}", True)
         tk.Frame(k1, height=px(14), bg=KART).pack()
 
-        self.ana = Dugme(sol, "BAŞLAT", self._ac_kapat, BG, C1, C2, yukseklik=54, ikon="oynat")
+        self.ana = Dugme(sol, LocaleManager().actions.start, self._ac_kapat, BG, C1, C2, yukseklik=54, ikon="oynat")
         self.ana.pack(fill="x", pady=(px(16), 0))
 
         durum_satiri = tk.Frame(sol, bg=BG)
@@ -646,33 +648,33 @@ class Uygulama:
         Ikon(durum_satiri, "klavye", DIM, BG, boyut=20).pack(side="left")
         self.nokta = tk.Label(durum_satiri, text="●", font=(FONT, 9), fg=DIM, bg=BG)
         self.nokta.pack(side="left", padx=(px(8), px(2)))
-        self.durum = tk.Label(durum_satiri, text="Durdu", font=(FONT, 9), fg=DIM, bg=BG)
+        self.durum = tk.Label(durum_satiri, text=LocaleManager().status.stopped, font=(FONT, 9), fg=DIM, bg=BG)
         self.durum.pack(side="left")
 
         # ===== SAG: renk karti + bekleme karti =====
-        k2 = self._kart(sag, "RENK")
+        k2 = self._kart(sag, LocaleManager().color.card_title)
         satir = tk.Frame(k2, bg=KART)
         satir.pack(fill="x", padx=px(16), pady=(px(10), 0))
         Ikon(satir, "renk", C1, KART).pack(side="left")
-        tk.Label(satir, text="Dalga rengi", font=(FONT, 10, "bold"), fg=FG, bg=KART).pack(
+        tk.Label(satir, text=LocaleManager().color.wave_color, font=(FONT, 10, "bold"), fg=FG, bg=KART).pack(
             side="left", padx=(px(8), 0))
         self.segment = Segment(
-            k2, [("Gökkuşağı", "gokkusagi"), ("Sabit renk", "sabit")],
+            k2, [(LocaleManager().color.rainbow, "gokkusagi"), (LocaleManager().color.solid, "sabit")],
             self.ayar.mod, self._mod_degisti, KART)
         self.segment.pack(fill="x", padx=px(16), pady=(px(10), 0))
         renk_satir = tk.Frame(k2, bg=KART)
         renk_satir.pack(fill="x", padx=px(16), pady=(px(12), px(16)))
         self.ornek = Ornek(renk_satir, self.ayar.renk, self._renk_sec, KART)
         self.ornek.pack(side="left")
-        self.renk_dugme = Dugme(renk_satir, "Renk seç", self._renk_sec, KART, TRACK, TRACK,
+        self.renk_dugme = Dugme(renk_satir, LocaleManager().color.pick_color, self._renk_sec, KART, TRACK, TRACK,
                                 yukseklik=34, genislik=110, font=(FONT, 10, "bold"), yazi=FG)
         self.renk_dugme.pack(side="left", padx=(px(12), 0))
 
-        k3 = self._kart(sag, "BEKLEME IŞIĞI", ust_bosluk=px(16))
+        k3 = self._kart(sag, LocaleManager().standby.card_title, ust_bosluk=px(16))
         satir = tk.Frame(k3, bg=KART)
         satir.pack(fill="x", padx=px(16), pady=(px(10), 0))
         Ikon(satir, "ay", C2, KART).pack(side="left")
-        tk.Label(satir, text="Bekleme ışığı", font=(FONT, 10, "bold"), fg=FG, bg=KART).pack(
+        tk.Label(satir, text=LocaleManager().standby.toggle_label, font=(FONT, 10, "bold"), fg=FG, bg=KART).pack(
             side="left", padx=(px(8), 0))
         self.bek_anahtar = Anahtar(satir, self.ayar.bekleme_acik, self._bek_ac, KART)
         self.bek_anahtar.pack(side="right")
@@ -680,11 +682,11 @@ class Uygulama:
         bek_satir.pack(fill="x", padx=px(16), pady=(px(12), 0))
         self.bek_ornek = Ornek(bek_satir, self.ayar.bekleme_renk, self._bek_renk_sec, KART)
         self.bek_ornek.pack(side="left")
-        self.bek_dugme = Dugme(bek_satir, "Renk seç", self._bek_renk_sec, KART, TRACK, TRACK,
+        self.bek_dugme = Dugme(bek_satir, LocaleManager().standby.pick_color, self._bek_renk_sec, KART, TRACK, TRACK,
                                yukseklik=34, genislik=110, font=(FONT, 10, "bold"), yazi=FG)
         self.bek_dugme.pack(side="left", padx=(px(12), 0))
         self.bek_slider, _ = self._kaydirici_satiri(
-            k3, "parlaklik", "Parlaklık", "bekleme_parlaklik", 1, 100, 1,
+            k3, "parlaklik", LocaleManager().standby.brightness, "bekleme_parlaklik", 1, 100, 1,
             lambda v: f"%{int(float(v))}", True)
         tk.Frame(k3, height=px(14), bg=KART).pack()
 
@@ -754,7 +756,7 @@ class Uygulama:
         self._kaydet_planla()
 
     def _renk_sec(self):
-        sonuc = colorchooser.askcolor(color=self.ayar.renk, title="Dalga rengi")
+        sonuc = colorchooser.askcolor(color=self.ayar.renk, title=LocaleManager().color.dialog_title)
         if sonuc and sonuc[1]:
             self.ayar.renk = sonuc[1]
             self._gorunum_senkron()
@@ -768,7 +770,7 @@ class Uygulama:
     def _bek_renk_sec(self):
         if not self.ayar.bekleme_acik:
             return
-        sonuc = colorchooser.askcolor(color=self.ayar.bekleme_renk, title="Bekleme ışığı rengi")
+        sonuc = colorchooser.askcolor(color=self.ayar.bekleme_renk, title=LocaleManager().standby.dialog_title)
         if sonuc and sonuc[1]:
             self.ayar.bekleme_renk = sonuc[1]
             self._gorunum_senkron()
@@ -780,9 +782,9 @@ class Uygulama:
         else:
             self.motor.baslat()
         if self.motor.calisiyor:
-            self.ana.ayarla(metin="DURDUR", c1=DUR1, c2=DUR2, ikon="durdur")
+            self.ana.ayarla(metin=LocaleManager().actions.stop, c1=DUR1, c2=DUR2, ikon="durdur")
         else:
-            self.ana.ayarla(metin="BAŞLAT", c1=C1, c2=C2, ikon="oynat")
+            self.ana.ayarla(metin=LocaleManager().actions.start, c1=C1, c2=C2, ikon="oynat")
 
     def _durum_guncelle(self):
         if self.motor.durum_hata:
