@@ -1,4 +1,5 @@
-
+# kişisel vscode ayarları
+.vscode/settings.json
 
 # kişinin kendi config dosyası repoya konmaz
 config/config.yml
