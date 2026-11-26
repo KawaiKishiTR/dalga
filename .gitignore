@@ -3,3 +3,6 @@
 
 # kişinin kendi config dosyası repoya konmaz
 config/config.yml
+
+# py
+__pycache__/

@@ -11,83 +11,110 @@ Ayarlar, ayni klasordeki config/{model_adı}.yml dosyasina otomatik kaydedilir.
 """
 
 import math
-import os
 import threading
 import time
 import tkinter as tk
 import tkinter.font as tkfont
+from collections.abc import Callable
 from tkinter import colorchooser
 
 import keyboard
 
+from apex_hid import ApexKlavye
+from app.common.file_paths import BASE_DIR
 from app.common.rgbdata import RGBData
 from app.config.models import AppConfig
 from app.locale.manager import LocaleManager
-from apex_hid import ApexKlavye
+from app.ui.anahtar import Anahtar
+from app.ui.baslik import Baslik, SURUM
+from app.ui.common import (
+    BG, C1, C2, DIM, DUR1, DUR2, FG, FONT, 
+    HATA, KART, KENAR, TRACK, YESIL, Px
+)
+from app.ui.dugme import Dugme
+from app.ui.ikon import Ikon, IkonEnum
+from app.ui.kaydirici import Kaydirici
+from app.ui.ornek import Ornek
+from app.ui.segment import Segment
 
-SURUM = "v0.4"
-KLASOR = os.path.dirname(os.path.abspath(__file__))
+KLASOR = str(BASE_DIR)
 
+# ------------------------- EFEKT SABITLERI -------------------------
 BOLGE_SAYISI = 8
 TOPLAM_GENISLIK = 18.5  # klavyenin tus genisligi cinsinden toplam genisligi
 SOL_BOSLUK = 0.0
 MIN_KALINLIK = 0.8      # bunun altinda titreme yapiyor
+MIN_OMUR = 0.05
+MIN_FPS = 5
+HUE_ADIM = 0.06
+SIYAH = RGBData(r=0, g=0, b=0)
 
+# ------------------------- ARAYUZ SABITLERI -------------------------
+_WIN_WIDTH = Px(780)
+_BODY_PAD_X = Px(20)
+_BODY_PAD_TOP = Px(14)
+_BODY_PAD_BOTTOM = Px(20)
+_COL_GAP = Px(9)
+_CARD_PAD_X = Px(16)
+_CARD_PAD_Y = Px(12)
+_ROW_PAD_TOP = Px(10)
+_SECTION_GAP = Px(16)
+_SPACER_H = Px(14)
+_ICON_TEXT_GAP = Px(8)
 
-# ----------------------------- TASARIM -----------------------------
-BG = RGBData.from_hex("#0a0a12")
-KART = RGBData.from_hex("#13131f")
-KENAR = RGBData.from_hex("#232338")
-TRACK = RGBData.from_hex("#25253a")
-DEVRE = RGBData.from_hex("#3a3a52")
-FG = RGBData.from_hex("#eceaf8")
-DIM = RGBData.from_hex("#7c7a99")
-C1 = RGBData.from_hex("#00d4ff")   # camgobegi
-C2 = RGBData.from_hex("#8b5cff")   # mor
-DUR1 = RGBData.from_hex("#ff6b8a")
-DUR2 = RGBData.from_hex("#ff2d6f")
-YESIL = RGBData.from_hex("#3ddc97")
-HATA = RGBData.from_hex("#ff5d73")
-FONT = "Segoe UI"
+_MAIN_BTN_H = Px(54)
+_SMALL_BTN_H = Px(34)
+_SMALL_BTN_W = Px(110)
+_STATUS_ICON_SIZE = Px(20)
 
-OLCEK = 1.0  # ekran olcegi (main icinde ayarlanir)
+_SAVE_DEBOUNCE_MS = 400
+_STATUS_POLL_MS = 500
+
+_SPEED_RANGE = (2.0, 20.0, 0.5)
+_THICKNESS_RANGE = (MIN_KALINLIK, 4.0, 0.1)
+_BRIGHTNESS_RANGE = (5.0, 100.0, 1.0)
+_STANDBY_BRIGHTNESS_RANGE = (1.0, 100.0, 1.0)
 
 
 # ------------------------- TUS KONUMLARI -------------------------
 # Tusun fiziksel konumu (scan code'a gore; Turkce/Ingilizce Q duzeninde ayni calisir)
-KONUM = {}
-KONUM[1] = 0.5  # Esc
+KONUM: dict[int, float] = {
+    1: 0.5,    # Esc
+    87: 12.5,  # F11
+    88: 13.5,  # F12
+    41: 0.5,   # `
+    14: 14.0,  # Backspace
+    15: 0.75,  # Tab
+    28: 14.0,  # Enter
+    58: 0.9,   # Caps
+    43: 14.0,
+    42: 1.1,   # Sol Shift
+    86: 2.0,   # < > tusu
+    54: 13.0,  # Sag Shift
+    29: 0.7,   # Ctrl
+    56: 3.5,   # Alt
+    57: 7.0,   # Space
+    75: 15.5,  # Sol ok
+    80: 16.5,  # Asagi ok
+    77: 17.5,  # Sag ok
+    72: 16.5,  # Yukari ok
+}
 for _i, _sc in enumerate(range(59, 69)):  # F1-F10
     KONUM[_sc] = 2.5 + _i * 1.0 + (_i // 4) * 0.5
-KONUM[87] = 12.5  # F11
-KONUM[88] = 13.5  # F12
-KONUM[41] = 0.5  # `
 for _sc in range(2, 14):  # 1 2 3 ... - =
     KONUM[_sc] = 1.5 + (_sc - 2)
-KONUM[14] = 14.0  # Backspace
-KONUM[15] = 0.75  # Tab
 for _sc in range(16, 28):  # Q W E ... [ ]
     KONUM[_sc] = 2.0 + (_sc - 16)
-KONUM[28] = 14.0  # Enter
-KONUM[58] = 0.9  # Caps
 for _sc in range(30, 42):  # A S D ... ; '
     KONUM[_sc] = 2.25 + (_sc - 30)
-KONUM[43] = 14.0
-KONUM[42] = 1.1  # Sol Shift
-KONUM[86] = 2.0  # < > tusu
 for _sc in range(44, 54):  # Z X C ... . /
     KONUM[_sc] = 2.75 + (_sc - 44)
-KONUM[54] = 13.0  # Sag Shift
-KONUM[29] = 0.7  # Ctrl
-KONUM[56] = 3.5  # Alt
-KONUM[57] = 7.0  # Space
-KONUM[75] = 15.5  # Sol ok
-KONUM[80] = 16.5  # Asagi ok
-KONUM[77] = 17.5  # Sag ok
-KONUM[72] = 16.5  # Yukari ok
 
 
-def bolge_bul(scan_code):
+WaveItem = tuple[float, float, RGBData]
+
+
+def bolge_bul(scan_code: int):
     x = KONUM.get(scan_code)
     if x is None:
         return None
@@ -98,19 +125,20 @@ def bolge_bul(scan_code):
 def bekleme_rengi(ayar: AppConfig) -> RGBData:
     """Bekleme isigi aciksa (R,G,B) float, kapaliysa siyah."""
     if not ayar.bekleme_acik:
-        return RGBData(r=0, g=0, b=0)
+        return SIYAH
     return ayar.bekleme_renk * (ayar.bekleme_parlaklik / 100.0)
 
 
-def kare_hesapla(aktif, simdi, ayar: AppConfig) -> list[RGBData]:
-    """Verilen dalgalar icin 8 bolgenin (R,G,B) degerlerini hesaplar."""
+def kare_hesapla(aktif: list[WaveItem], simdi: float, ayar: AppConfig) -> list[RGBData]:
+    """Verilen dalgalar icin 8 bolgenin RGBData degerlerini hesaplar."""
     n = BOLGE_SAYISI
     hiz = float(ayar.hiz)
     kalinlik = max(MIN_KALINLIK, float(ayar.kalinlik))
-    omur = max(0.05, float(ayar.omur))
+    omur = max(MIN_OMUR, float(ayar.omur))
     parlaklik = max(0.0, min(1.0, float(ayar.parlaklik) / 100.0))
     taban = bekleme_rengi(ayar)
     toplam = [list(taban.to_tuple()) for _ in range(n)]
+
     for merkez, basla, renk in aktif:
         yas = simdi - basla
         yaricap = yas * hiz
@@ -125,25 +153,23 @@ def kare_hesapla(aktif, simdi, ayar: AppConfig) -> list[RGBData]:
             toplam[z][0] += renk.r * v
             toplam[z][1] += renk.g * v
             toplam[z][2] += renk.b * v
-    return [
-        RGBData(r=int(c[0]), g=int(c[1]), b=int(c[2]))
-        for c in toplam
-    ]
+
+    return [RGBData(r=int(c[0]), g=int(c[1]), b=int(c[2])) for c in toplam]
 
 
 # ------------------------------ MOTOR ------------------------------
 class Motor:
     """Tus dinler, dalgalari hesaplar, klavyeye gonderir (arka planda)."""
 
-    def __init__(self, ayar: AppConfig):
+    def __init__(self, ayar: AppConfig) -> None:
         self.ayar = ayar
         self.kb = ApexKlavye()
         self.kilit = threading.Lock()
-        self.dalgalar = []
+        self.dalgalar: list[WaveItem] = []
         self.hue = 0.0
         self.durdur_ev = threading.Event()
-        self.thread = None
-        self._hook = None
+        self.thread: threading.Thread | None = None
+        self._hook: object | None = None
         self.calisiyor = False
         self.durum = LocaleManager().status.stopped
         self.durum_hata = False
@@ -151,10 +177,10 @@ class Motor:
     def _renk_sec(self) -> RGBData:
         if self.ayar.mod == "sabit":
             return self.ayar.renk
-        self.hue = (self.hue + 0.06) % 1.0
+        self.hue = (self.hue + HUE_ADIM) % 1.0
         return RGBData.from_hsv(self.hue, 1.0, 1.0)
 
-    def _tus(self, olay):
+    def _tus(self, olay: keyboard.KeyboardEvent) -> None:
         if olay.event_type != "down":
             return
         merkez = bolge_bul(olay.scan_code)
@@ -182,19 +208,20 @@ class Motor:
         self.durum_hata = False
         return True
 
-    def durdur(self):
+    def durdur(self) -> None:
         if not self.calisiyor:
             return
         self.durdur_ev.set()
         if self.thread is not None:
             self.thread.join(timeout=2)
+        if self._hook is not None:
+            try:
+                keyboard.unhook(self._hook)
+            except Exception:
+                pass
+            self._hook = None
         try:
-            keyboard.unhook(self._hook)
-        except Exception:
-            pass
-        self._hook = None
-        try:
-            self.kb.renk_gonder([RGBData(r=0,g=0,b=0)] * BOLGE_SAYISI)
+            self.kb.renk_gonder([SIYAH] * BOLGE_SAYISI)
         except Exception:
             pass
         self.kb.kapat()
@@ -202,19 +229,19 @@ class Motor:
         self.durum = LocaleManager().status.stopped
         self.durum_hata = False
 
-    def _dongu(self):
-        son_gonderilen = None
+    def _dongu(self) -> None:
+        son_gonderilen: list[RGBData] | None = None
         while not self.durdur_ev.is_set():
             t0 = time.time()
-            aralik = 1.0 / max(5, int(self.ayar.fps))
-            omur = max(0.05, float(self.ayar.omur))
+            aralik = 1.0 / max(MIN_FPS, int(self.ayar.fps))
+            omur = max(MIN_OMUR, float(self.ayar.omur))
             with self.kilit:
                 self.dalgalar[:] = [d for d in self.dalgalar if t0 - d[1] < omur * 2.5]
                 aktif = list(self.dalgalar)
 
             kare = kare_hesapla(aktif, t0, self.ayar)
 
-            if kare != son_gonderilen:  # sadece isiklar degistiyse gonder
+            if kare != son_gonderilen:
                 if self.kb.renk_gonder(kare):
                     son_gonderilen = kare
                     self.durum = LocaleManager().status.running
@@ -229,369 +256,15 @@ class Motor:
             if gecen < aralik:
                 self.durdur_ev.wait(aralik - gecen)
 
-
-# ----------------------------- TASARIM -----------------------------
-
-
-def px(v):
-    return int(round(v * OLCEK))
-
-
-def yuvarlak(c, x1, y1, x2, y2, r, **kw):
-    """Yuvarlatilmis koseli dikdortgen (smooth polygon)."""
-    pts = [
-        x1 + r, y1, x1 + r, y1, x2 - r, y1, x2 - r, y1, x2, y1,
-        x2, y1 + r, x2, y1 + r, x2, y2 - r, x2, y2 - r, x2, y2,
-        x2 - r, y2, x2 - r, y2, x1 + r, y2, x1 + r, y2, x1, y2,
-        x1, y2 - r, x1, y2 - r, x1, y1 + r, x1, y1 + r, x1, y1,
-    ]
-    return c.create_polygon(pts, smooth=True, **kw)
-
-
-def ikon_ciz(c, ad, cx, cy, s, renk, bg):
-    """Vektor simgeler (resim dosyasi gerekmez)."""
-    kal = max(1, px(2))
-    if ad == "dalga":
-        pts = []
-        n = 24
-        for i in range(n + 1):
-            t = i / n
-            pts += [cx - s + 2 * s * t, cy - s * 0.55 * math.sin(2 * math.pi * 1.5 * t)]
-        c.create_line(*pts, smooth=True, width=kal, fill=renk, capstyle="round")
-    elif ad == "hiz":
-        rel = [(0.2, -1), (-0.6, 0.2), (-0.05, 0.2), (-0.2, 1), (0.6, -0.25), (0.05, -0.25)]
-        pts = []
-        for x, y in rel:
-            pts += [cx + x * s * 0.95, cy + y * s * 0.95]
-        c.create_polygon(*pts, fill=renk, outline="")
-    elif ad == "kalinlik":
-        for oy, hh in ((-0.7, 0.2), (0.0, 0.38), (0.75, 0.62)):
-            y = cy + oy * s
-            c.create_rectangle(cx - s, y - hh * s / 2, cx + s, y + hh * s / 2, fill=renk, outline="")
-    elif ad == "parlaklik":
-        r = s * 0.42
-        c.create_oval(cx - r, cy - r, cx + r, cy + r, fill=renk, outline="")
-        for i in range(8):
-            a = math.pi / 4 * i
-            c.create_line(
-                cx + math.cos(a) * s * 0.68, cy + math.sin(a) * s * 0.68,
-                cx + math.cos(a) * s * 1.0, cy + math.sin(a) * s * 1.0,
-                width=kal, fill=renk, capstyle="round",
-            )
-    elif ad == "ay":
-        r = s * 0.85
-        c.create_oval(cx - r, cy - r, cx + r, cy + r, fill=renk, outline="")
-        r2 = s * 0.72
-        ox, oy = cx + s * 0.5, cy - s * 0.3
-        c.create_oval(ox - r2, oy - r2, ox + r2, oy + r2, fill=bg, outline="")
-    elif ad == "renk":
-        r = s * 0.95
-        c.create_oval(cx - r, cy - r, cx + r, cy + r, outline=renk, width=kal)
-        for a in (-math.pi / 2, math.pi / 6, 5 * math.pi / 6):
-            dx, dy = cx + math.cos(a) * s * 0.5, cy + math.sin(a) * s * 0.5
-            rr = s * 0.17
-            c.create_oval(dx - rr, dy - rr, dx + rr, dy + rr, fill=renk, outline="")
-    elif ad == "klavye":
-        c.create_rectangle(cx - s, cy - s * 0.6, cx + s, cy + s * 0.6, outline=renk, width=kal)
-        for row in (-0.25, 0.25):
-            for col in (-0.55, 0.0, 0.55):
-                kx, ky = cx + col * s, cy + row * s
-                q = s * 0.12
-                c.create_rectangle(kx - q, ky - q, kx + q, ky + q, fill=renk, outline="")
-    elif ad == "oynat":
-        c.create_polygon(cx - s * 0.55, cy - s * 0.8, cx + s * 0.8, cy, cx - s * 0.55, cy + s * 0.8,
-                         fill=renk, outline="")
-    elif ad == "durdur":
-        q = s * 0.65
-        c.create_rectangle(cx - q, cy - q, cx + q, cy + q, fill=renk, outline="")
-
-
-class Ikon(tk.Canvas):
-    def __init__(self, ebeveyn, ad, renk, bg, boyut=22):
-        b = px(boyut)
-        super().__init__(ebeveyn, width=b, height=b, bg=bg, highlightthickness=0, bd=0)
-        ikon_ciz(self, ad, b / 2, b / 2, b * 0.38, renk, bg)
-
-
-class Baslik(tk.Canvas):
-    """Ust kisim: rozet + gradyan 'DALGA' + surum."""
-
-    def __init__(self, ebeveyn, bg:RGBData):
-        super().__init__(ebeveyn, height=px(98), bg=bg.to_hex(), highlightthickness=0, bd=0)
-        self.bind("<Configure>", lambda e: self.ciz())
-
-    def ciz(self):
-        self.delete("all")
-        w = self.winfo_width()
-        h = self.winfo_height()
-        if w <= 2:
-            return
-        pad = px(22)
-        b = px(52)
-        cy = px(40)
-        self.create_oval(pad, cy - b / 2, pad + b, cy + b / 2, fill=KART.to_hex(), outline=C1.to_hex(), width=2)
-        self.create_oval(pad + px(4), cy - b / 2 + px(4), pad + b - px(4), cy + b / 2 - px(4),
-                         fill=KART.to_hex(), outline=C2.to_hex(), width=1)
-        ikon_ciz(self, "dalga", pad + b / 2, cy, b * 0.27, C1.to_hex(), KART.to_hex())
-
-        font = tkfont.Font(family=FONT, size=30, weight="bold")
-        x = pad + b + px(16)
-        for i, ch in enumerate("DALGA"): # uygulama ismi kasıtlı olarak çevirilmemiştir
-            self.create_text(x, cy, text=ch, font=font, fill=C1.lerp(C2, i/4).to_hex(), anchor="w")
-            x += font.measure(ch)
-        asc = font.metrics("ascent")
-        desc = font.metrics("descent")
-        taban = cy + (asc - desc) / 2
-        self.create_text(x + px(8), taban, text=SURUM, font=(FONT, 11), fill=DIM.to_hex(), anchor="sw")
-        self.create_text(pad, px(84), text=LocaleManager().header.subtitle,
-                         font=(FONT, 9), fill=DIM.to_hex(), anchor="w")
-        self.create_line(pad, h - 1, w - pad, h - 1, fill=KENAR.to_hex())
-
-
-class Kaydirici(tk.Canvas):
-    """Gradyan dolgulu, parlayan topuzlu kaydirici."""
-
-    def __init__(self, ebeveyn, alt, ust, adim, deger, komut, bg:RGBData):
-        super().__init__(ebeveyn, height=px(30), bg=bg.to_hex(), highlightthickness=0, bd=0, cursor="hand2")
-        self.alt, self.ust, self.adim = alt, ust, adim
-        self.deger = deger
-        self.komut = komut
-        self.bgc:RGBData = bg
-        self.aktif = True
-        self.bind("<Configure>", lambda e: self.ciz())
-        self.bind("<Button-1>", self._tikla)
-        self.bind("<B1-Motion>", self._tikla)
-
-    def ciz(self):
-        self.delete("all")
-        w = self.winfo_width()
-        h = self.winfo_height()
-        if w <= 2:
-            return
-        k = px(12)
-        y = h / 2
-        kal = px(6)
-        x0, x1 = k, w - k
-        oran = (self.deger - self.alt) / float(self.ust - self.alt)
-        oran = max(0.0, min(1.0, oran))
-        xv = x0 + (x1 - x0) * oran
-        c1, c2 = (C1, C2) if self.aktif else (DEVRE, DEVRE)
-
-        self.create_line(x0, y, x1, y, width=kal, capstyle="round", fill=TRACK.to_hex())
-        if xv > x0 + 1:
-            n = max(2, int((xv - x0) / px(5)))
-            for i in range(n):
-                a = x0 + (xv - x0) * i / n
-                b = x0 + (xv - x0) * (i + 1) / n
-                self.create_line(a, y, b + 1, y, width=kal, fill=c1.lerp(c2, (i + 0.5) / n).to_hex())
-            self.create_oval(x0 - kal / 2, y - kal / 2, x0 + kal / 2, y + kal / 2, fill=c1.to_hex(), outline="")
-        r = px(9)
-        topuz = c1.lerp(c2, oran)
-        self.create_oval(xv - r - px(4), y - r - px(4), xv + r + px(4), y + r + px(4),
-                         fill=self.bgc.lerp(topuz, 0.22).to_hex(), outline="")
-        self.create_oval(xv - r, y - r, xv + r, y + r, fill="#ffffff" if self.aktif else "#9a9ab0",
-                         outline=topuz.to_hex(), width=2)
-
-    def _tikla(self, e):
-        if not self.aktif:
-            return
-        w = self.winfo_width()
-        k = px(12)
-        oran = (e.x - k) / float(max(1, w - 2 * k))
-        oran = max(0.0, min(1.0, oran))
-        ham = self.alt + oran * (self.ust - self.alt)
-        v = self.alt + round((ham - self.alt) / self.adim) * self.adim
-        v = round(max(self.alt, min(self.ust, v)), 2)
-        if v != self.deger:
-            self.deger = v
-            self.ciz()
-            self.komut(v)
-
-
-class Anahtar(tk.Canvas):
-    """Ac/kapa anahtari."""
-
-    def __init__(self, ebeveyn, deger, komut, bg:RGBData):
-        self.gen, self.yuk = px(48), px(26)
-        super().__init__(ebeveyn, width=self.gen, height=self.yuk, bg=bg.to_hex(),
-                         highlightthickness=0, bd=0, cursor="hand2")
-        self.deger = bool(deger)
-        self.komut = komut
-        self.bind("<Button-1>", self._tikla)
-        self.ciz()
-
-    def ciz(self):
-        self.delete("all")
-        w, h = self.gen, self.yuk
-        if self.deger:
-            # gradyan kapsul
-            self.create_oval(0, 0, h, h, fill=C1.to_hex(), outline="")
-            self.create_oval(w - h, 0, w, h, fill=C2.to_hex(), outline="")
-            x, xe = int(h / 2), int(w - h / 2)
-            for i in range(x, xe, 2):
-                self.create_line(i, 0, i, h, fill=C1.lerp(C2, (i - x) / max(1, xe - x)).to_hex(), width=3)
-        else:
-            yuvarlak(self, 0, 0, w, h, h / 2, fill=TRACK.to_hex(), outline="")
-        r = h / 2 - px(3)
-        kx = w - h / 2 if self.deger else h / 2
-        self.create_oval(kx - r, h / 2 - r, kx + r, h / 2 + r,
-                         fill="#ffffff" if self.deger else "#8a8aa6", outline="")
-
-    def _tikla(self, e):
-        self.deger = not self.deger
-        self.ciz()
-        self.komut(self.deger)
-
-
-class Segment(tk.Canvas):
-    """Iki secenekli kapsul secici."""
-
-    def __init__(self, ebeveyn, secenekler, secili, komut, bg:RGBData):
-        super().__init__(ebeveyn, height=px(38), bg=bg.to_hex(), highlightthickness=0, bd=0, cursor="hand2")
-        self.secenekler = secenekler
-        self.secili = secili
-        self.komut = komut
-        self.bind("<Configure>", lambda e: self.ciz())
-        self.bind("<Button-1>", self._tikla)
-
-    def ciz(self):
-        self.delete("all")
-        w = self.winfo_width()
-        h = self.winfo_height()
-        if w <= 2:
-            return
-        yuvarlak(self, 0, 0, w, h, h / 2, fill=TRACK.to_hex(), outline="")
-        n = len(self.secenekler)
-        pw = w / float(n)
-        for i, (metin, deger) in enumerate(self.secenekler):
-            x1, x2 = i * pw + px(3), (i + 1) * pw - px(3)
-            sec = deger == self.secili
-            if sec:
-                yuvarlak(self, x1, px(3), x2, h - px(3), (h - px(6)) / 2,
-                         fill=C1.lerp(C2, 0.2 + 0.6 * (i / max(1, n - 1))).to_hex(), outline="")
-            self.create_text((x1 + x2) / 2, h / 2, text=metin, font=(FONT, 10, "bold"),
-                             fill="#ffffff" if sec else DIM.to_hex())
-
-    def _tikla(self, e):
-        w = max(1, self.winfo_width())
-        i = max(0, min(len(self.secenekler) - 1, int(e.x / (w / float(len(self.secenekler))))))
-        deger = self.secenekler[i][1]
-        if deger != self.secili:
-            self.secili = deger
-            self.ciz()
-            self.komut(deger)
-
-
-class Dugme(tk.Canvas):
-    """Gradyan kapsul dugme (istege bagli simgeli)."""
-
-    def __init__(self, ebeveyn, metin, komut, bg:RGBData, c1:RGBData, c2:RGBData, yukseklik=46, genislik=None,
-                 ikon=None, font=None, yazi:RGBData = RGBData.from_hex("#ffffff")):
-        kw = {"width": px(genislik)} if genislik else {}
-        super().__init__(ebeveyn, height=px(yukseklik), bg=bg.to_hex(), highlightthickness=0, bd=0,
-                         cursor="hand2", **kw)
-        self.metin, self.komut, self.bgc = metin, komut, bg
-        self.c1, self.c2, self.ikon = c1, c2, ikon
-        self.font = font or (FONT, 12, "bold")
-        self.yazi = yazi
-        self.hover = False
-        self.aktif = True
-        self.bind("<Configure>", lambda e: self.ciz())
-        self.bind("<Enter>", self._gir)
-        self.bind("<Leave>", self._cik)
-        self.bind("<Button-1>", self._tikla)
-
-    def ayarla(self, metin=None, c1:RGBData = None, c2:RGBData = None, ikon=None):
-        if metin is not None:
-            self.metin = metin
-        if c1 is not None:
-            self.c1 = c1
-        if c2 is not None:
-            self.c2 = c2
-        if ikon is not None:
-            self.ikon = ikon
-        self.ciz()
-
-    def ciz(self):
-        self.delete("all")
-        w = self.winfo_width()
-        h = self.winfo_height()
-        if w <= 2:
-            return
-        c1, c2 = self.c1, self.c2
-        if not self.aktif:
-            c1 = c2 = DEVRE
-        elif self.hover:
-            c1 = c1.lerp(RGBData(r=255,g=255,b=255), 0.14)
-            c2 = c2.lerp(RGBData(r=255,g=255,b=255), 0.14)
-        self.create_oval(0, 0, h, h, fill=c1.to_hex(), outline="")
-        self.create_oval(w - h, 0, w, h, fill=c2.to_hex(), outline="")
-        x, xe = int(h / 2), int(w - h / 2)
-        span = max(1, xe - x)
-        for i in range(x, xe, 2):
-            self.create_line(i, 0, i, h, fill=c1.lerp(c2, (i - x) / span).to_hex(), width=3)
-
-        yazi = self.yazi if self.aktif else RGBData.from_hex("#7a7a92")
-        tw = tkfont.Font(font=self.font).measure(self.metin)
-        s = px(8)
-        bosluk = px(10)
-        toplam = tw + (2 * s + bosluk if self.ikon else 0)
-        bx = (w - toplam) / 2
-        if self.ikon:
-            ikon_ciz(self, self.ikon, bx + s, h / 2, s, yazi.to_hex(), c1.to_hex())
-            bx += 2 * s + bosluk
-        self.create_text(bx, h / 2, text=self.metin, font=self.font, fill=yazi.to_hex(), anchor="w")
-
-    def _gir(self, e):
-        self.hover = True
-        self.ciz()
-
-    def _cik(self, e):
-        self.hover = False
-        self.ciz()
-
-    def _tikla(self, e):
-        if self.aktif and self.komut:
-            self.komut()
-
-
-class Ornek(tk.Canvas):
-    """Renk ornegi (yuvarlak). Gokkusagi modunda gokkusagi diski gosterir."""
-
-    def __init__(self, ebeveyn, renk:RGBData, komut, bg:RGBData, boyut=36):
-        self.b = px(boyut)
-        super().__init__(ebeveyn, width=self.b, height=self.b, bg=bg.to_hex(),
-                         highlightthickness=0, bd=0, cursor="hand2")
-        self.renk, self.komut = renk, komut
-        self.gokkusagi = False
-        self.aktif = True
-        self.bind("<Button-1>", self._tikla)
-        self.ciz()
-
-    def ciz(self):
-        self.delete("all")
-        b, m = self.b, px(4)
-        if self.gokkusagi:
-            for i in range(12):
-                self.create_arc(m, m, b - m, b - m, start=i * 30, extent=30,
-                                fill=RGBData.from_hsv(i / 12.0, 1.0, 1.0).to_hex(), outline="")
-        else:
-            self.create_oval(m, m, b - m, b - m, fill=self.renk.to_hex() if self.aktif else DEVRE.to_hex(), outline="")
-        self.create_oval(1, 1, b - 1, b - 1, outline="#3a3a58", width=2)
-
-    def _tikla(self, e):
-        if self.aktif and not self.gokkusagi and self.komut:
-            self.komut()
-
-
 # ----------------------------- ARAYUZ -----------------------------
 class Uygulama:
-    def __init__(self, root: tk.Tk):
+    def __init__(self, root: tk.Tk) -> None:
         self.root = root
-        self.ayar:AppConfig = AppConfig.get_config()
+        self.ayar: AppConfig = AppConfig.get_config()
         LocaleManager.set_language(self.ayar.dil)
         self.motor = Motor(self.ayar)
-        self._kayit_zamanlayici = None
+        self._kayit_zamanlayici: str | None = None
+        self._small_btn_font = tkfont.Font(root=root, family=FONT, size=10, weight="bold")
 
         root.title(f"DALGA {SURUM}")
         root.configure(bg=BG.to_hex())
@@ -600,182 +273,254 @@ class Uygulama:
         Baslik(root, BG).pack(fill="x")
 
         govde = tk.Frame(root, bg=BG.to_hex())
-        govde.pack(fill="both", expand=True, padx=px(20), pady=(px(14), px(20)))
+        govde.pack(
+            fill="both",
+            expand=True,
+            padx=_BODY_PAD_X.to_int(),
+            pady=(_BODY_PAD_TOP.to_int(), _BODY_PAD_BOTTOM.to_int()),
+        )
         govde.columnconfigure(0, weight=1, uniform="k")
         govde.columnconfigure(1, weight=1, uniform="k")
+
         sol = tk.Frame(govde, bg=BG.to_hex())
-        sol.grid(row=0, column=0, sticky="nsew", padx=(0, px(9)))
+        sol.grid(row=0, column=0, sticky="nsew", padx=(0, _COL_GAP.to_int()))
         sag = tk.Frame(govde, bg=BG.to_hex())
-        sag.grid(row=0, column=1, sticky="nsew", padx=(px(9), 0))
+        sag.grid(row=0, column=1, sticky="nsew", padx=(_COL_GAP.to_int(), 0))
 
-        # ===== SOL: efekt karti + baslat =====
-        k1 = self._kart(sol, LocaleManager().effect.card_title)
-        self._kaydirici_satiri(k1, "hiz", LocaleManager().effect.speed, "hiz", 2, 20, 0.5,
-                               lambda v: f"{float(v):.1f}", False)
-        self._kaydirici_satiri(k1, "kalinlik", LocaleManager().effect.thickness, "kalinlik", MIN_KALINLIK, 4.0, 0.1,
-                               lambda v: f"{float(v):.1f}", False)
-        self._kaydirici_satiri(k1, "parlaklik", LocaleManager().effect.brightness, "parlaklik", 5, 100, 1,
-                               lambda v: f"%{int(float(v))}", True)
-        tk.Frame(k1, height=px(14), bg=KART.to_hex()).pack()
-
-        self.ana = Dugme(sol, LocaleManager().actions.start, self._ac_kapat, BG, C1, C2, yukseklik=54, ikon="oynat")
-        self.ana.pack(fill="x", pady=(px(16), 0))
-
-        durum_satiri = tk.Frame(sol, bg=BG.to_hex())
-        durum_satiri.pack(fill="x", pady=(px(12), 0))
-        Ikon(durum_satiri, "klavye", DIM.to_hex(), BG.to_hex(), boyut=20).pack(side="left")
-        self.nokta = tk.Label(durum_satiri, text="●", font=(FONT, 9), fg=DIM.to_hex(), bg=BG.to_hex())
-        self.nokta.pack(side="left", padx=(px(8), px(2)))
-        self.durum = tk.Label(durum_satiri, text=LocaleManager().status.stopped, font=(FONT, 9), fg=DIM.to_hex(), bg=BG.to_hex())
-        self.durum.pack(side="left")
-
-        # ===== SAG: renk karti + bekleme karti =====
-        k2 = self._kart(sag, LocaleManager().color.card_title)
-        satir = tk.Frame(k2, bg=KART.to_hex())
-        satir.pack(fill="x", padx=px(16), pady=(px(10), 0))
-        Ikon(satir, "renk", C1.to_hex(), KART.to_hex()).pack(side="left")
-        tk.Label(satir, text=LocaleManager().color.wave_color, font=(FONT, 10, "bold"), fg=FG.to_hex(), bg=KART.to_hex()).pack(
-            side="left", padx=(px(8), 0))
-        self.segment = Segment(
-            k2, [(LocaleManager().color.rainbow, "gokkusagi"), (LocaleManager().color.solid, "sabit")],
-            self.ayar.mod, self._mod_degisti, KART)
-        self.segment.pack(fill="x", padx=px(16), pady=(px(10), 0))
-        renk_satir = tk.Frame(k2, bg=KART.to_hex())
-        renk_satir.pack(fill="x", padx=px(16), pady=(px(12), px(16)))
-        self.ornek = Ornek(renk_satir, self.ayar.renk, self._renk_sec, KART)
-        self.ornek.pack(side="left")
-        self.renk_dugme = Dugme(renk_satir, LocaleManager().color.pick_color, self._renk_sec, KART, TRACK, TRACK,
-                                yukseklik=34, genislik=110, font=(FONT, 10, "bold"), yazi=FG)
-        self.renk_dugme.pack(side="left", padx=(px(12), 0))
-
-        k3 = self._kart(sag, LocaleManager().standby.card_title, ust_bosluk=px(16))
-        satir = tk.Frame(k3, bg=KART.to_hex())
-        satir.pack(fill="x", padx=px(16), pady=(px(10), 0))
-        Ikon(satir, "ay", C2.to_hex(), KART.to_hex()).pack(side="left")
-        tk.Label(satir, text=LocaleManager().standby.toggle_label, font=(FONT, 10, "bold"), fg=FG.to_hex(), bg=KART.to_hex()).pack(
-            side="left", padx=(px(8), 0))
-        self.bek_anahtar = Anahtar(satir, self.ayar.bekleme_acik, self._bek_ac, KART)
-        self.bek_anahtar.pack(side="right")
-        bek_satir = tk.Frame(k3, bg=KART.to_hex())
-        bek_satir.pack(fill="x", padx=px(16), pady=(px(12), 0))
-        self.bek_ornek = Ornek(bek_satir, self.ayar.bekleme_renk, self._bek_renk_sec, KART)
-        self.bek_ornek.pack(side="left")
-        self.bek_dugme = Dugme(bek_satir, LocaleManager().standby.pick_color, self._bek_renk_sec, KART, TRACK, TRACK,
-                               yukseklik=34, genislik=110, font=(FONT, 10, "bold"), yazi=FG)
-        self.bek_dugme.pack(side="left", padx=(px(12), 0))
-        self.bek_slider, _ = self._kaydirici_satiri(
-            k3, "parlaklik", LocaleManager().standby.brightness, "bekleme_parlaklik", 1, 100, 1,
-            lambda v: f"%{int(float(v))}", True)
-        tk.Frame(k3, height=px(14), bg=KART.to_hex()).pack()
-
+        self._build_left_column(sol)
+        self._build_right_column(sag)
         self._gorunum_senkron()
 
         root.update_idletasks()
-        root.geometry(f"{px(780)}x{root.winfo_reqheight()}")
+        root.geometry(f"{_WIN_WIDTH.to_int()}x{root.winfo_reqheight()}")
         root.protocol("WM_DELETE_WINDOW", self._kapat)
         self._durum_guncelle()
+    def _build_left_column(self, parent: tk.Frame) -> None:
+        loc = LocaleManager()
+        bg_hex = BG.to_hex()
+        kart_hex = KART.to_hex()
+        dim_hex = DIM.to_hex()
+
+        k1 = self._kart(parent, loc.effect.card_title)
+        self._kaydirici_satiri(
+            k1, IkonEnum.HIZ, loc.effect.speed, "hiz",
+            *_SPEED_RANGE, lambda v: f"{v:.1f}", False,
+        )
+        self._kaydirici_satiri(
+            k1, IkonEnum.KALINLIK, loc.effect.thickness, "kalinlik",
+            *_THICKNESS_RANGE, lambda v: f"{v:.1f}", False,
+        )
+        self._kaydirici_satiri(
+            k1, IkonEnum.PARLAKLIK, loc.effect.brightness, "parlaklik",
+            *_BRIGHTNESS_RANGE, lambda v: f"%{int(v)}", True,
+        )
+        tk.Frame(k1, height=_SPACER_H.to_int(), bg=kart_hex).pack()
+
+        self.ana = Dugme(
+            parent, loc.actions.start, self._ac_kapat, BG, C1, C2,
+            yukseklik=_MAIN_BTN_H, ikon=IkonEnum.OYNAT,
+        )
+        self.ana.pack(fill="x", pady=(_SECTION_GAP.to_int(), 0))
+
+        durum_satiri = tk.Frame(parent, bg=bg_hex)
+        durum_satiri.pack(fill="x", pady=(_CARD_PAD_Y.to_int(), 0))
+        Ikon(durum_satiri, IkonEnum.KLAVYE, boyut=_STATUS_ICON_SIZE).pack(side="left")
+        self.nokta = tk.Label(durum_satiri, text="●", font=(FONT, 9), fg=dim_hex, bg=bg_hex)
+        self.nokta.pack(side="left", padx=(_ICON_TEXT_GAP.to_int(), Px(2).to_int()))
+        self.durum = tk.Label(durum_satiri, text=loc.status.stopped, font=(FONT, 9), fg=dim_hex, bg=bg_hex)
+        self.durum.pack(side="left")
+
+    def _build_right_column(self, parent: tk.Frame) -> None:
+        loc = LocaleManager()
+        kart_hex = KART.to_hex()
+        fg_hex = FG.to_hex()
+        pad_x = _CARD_PAD_X.to_int()
+        row_top = _ROW_PAD_TOP.to_int()
+        card_y = _CARD_PAD_Y.to_int()
+
+        # Renk karti
+        k2 = self._kart(parent, loc.color.card_title)
+        satir = tk.Frame(k2, bg=kart_hex)
+        satir.pack(fill="x", padx=pad_x, pady=(row_top, 0))
+        Ikon(satir, IkonEnum.RENK).pack(side="left")
+        tk.Label(satir, text=loc.color.wave_color, font=(FONT, 10, "bold"), fg=fg_hex, bg=kart_hex).pack(
+            side="left", padx=(_ICON_TEXT_GAP.to_int(), 0),
+        )
+
+        self.segment: Segment[str] = Segment(
+            k2,
+            [(loc.color.rainbow, "gokkusagi"), (loc.color.solid, "sabit")],
+            self.ayar.mod,
+            self._mod_degisti,
+            KART,
+        )
+        self.segment.pack(fill="x", padx=pad_x, pady=(row_top, 0))
+
+        renk_satir = tk.Frame(k2, bg=kart_hex)
+        renk_satir.pack(fill="x", padx=pad_x, pady=(card_y, pad_x))
+        self.ornek = Ornek(renk_satir, self.ayar.renk, self._renk_sec, KART)
+        self.ornek.pack(side="left")
+        self.renk_dugme = Dugme(
+            renk_satir, loc.color.pick_color, self._renk_sec, KART, TRACK, TRACK,
+            yukseklik=_SMALL_BTN_H, genislik=_SMALL_BTN_W, font=self._small_btn_font, yazi=FG,
+        )
+        self.renk_dugme.pack(side="left", padx=(card_y, 0))
+
+        # Bekleme karti
+        k3 = self._kart(parent, loc.standby.card_title, ust_bosluk=_SECTION_GAP)
+        satir = tk.Frame(k3, bg=kart_hex)
+        satir.pack(fill="x", padx=pad_x, pady=(row_top, 0))
+        Ikon(satir, IkonEnum.AY).pack(side="left")
+        tk.Label(satir, text=loc.standby.toggle_label, font=(FONT, 10, "bold"), fg=fg_hex, bg=kart_hex).pack(
+            side="left", padx=(_ICON_TEXT_GAP.to_int(), 0),
+        )
+        self.bek_anahtar = Anahtar(satir, self.ayar.bekleme_acik, self._bek_ac, KART)
+        self.bek_anahtar.pack(side="right")
+
+        bek_satir = tk.Frame(k3, bg=kart_hex)
+        bek_satir.pack(fill="x", padx=pad_x, pady=(card_y, 0))
+        self.bek_ornek = Ornek(bek_satir, self.ayar.bekleme_renk, self._bek_renk_sec, KART)
+        self.bek_ornek.pack(side="left")
+        self.bek_dugme = Dugme(
+            bek_satir, loc.standby.pick_color, self._bek_renk_sec, KART, TRACK, TRACK,
+            yukseklik=_SMALL_BTN_H, genislik=_SMALL_BTN_W, font=self._small_btn_font, yazi=FG,
+        )
+        self.bek_dugme.pack(side="left", padx=(card_y, 0))
+
+        self.bek_slider, _ = self._kaydirici_satiri(
+            k3, IkonEnum.PARLAKLIK, loc.standby.brightness, "bekleme_parlaklik",
+            *_STANDBY_BRIGHTNESS_RANGE, lambda v: f"%{int(v)}", True,
+        )
+        tk.Frame(k3, height=_SPACER_H.to_int(), bg=kart_hex).pack()
 
     # --- yapi tasi ---
-    def _kart(self, ebeveyn, baslik, ust_bosluk=0):
-        kart = tk.Frame(ebeveyn, bg=KART.to_hex(), highlightbackground=KENAR.to_hex(), highlightcolor=KENAR.to_hex(),
-                        highlightthickness=1)
-        kart.pack(fill="x", pady=(ust_bosluk, 0))
-        tk.Label(kart, text=baslik, font=(FONT, 8, "bold"), fg=DIM.to_hex(), bg=KART.to_hex(), anchor="w").pack(
-            fill="x", padx=px(16), pady=(px(12), 0))
+    def _kart(self, ebeveyn: tk.Misc, baslik: str, ust_bosluk: Px = Px(0)) -> tk.Frame:
+        kart_hex = KART.to_hex()
+        kenar_hex = KENAR.to_hex()
+        kart = tk.Frame(
+            ebeveyn, bg=kart_hex, highlightbackground=kenar_hex,
+            highlightcolor=kenar_hex, highlightthickness=1,
+        )
+        kart.pack(fill="x", pady=(ust_bosluk.to_int(), 0))
+        tk.Label(
+            kart, text=baslik, font=(FONT, 8, "bold"),
+            fg=DIM.to_hex(), bg=kart_hex, anchor="w",
+        ).pack(fill="x", padx=_CARD_PAD_X.to_int(), pady=(_CARD_PAD_Y.to_int(), 0))
         return kart
+    
+    def _kaydirici_satiri(
+        self,
+        kart: tk.Frame,
+        ikon: IkonEnum,
+        ad: str,
+        anahtar: str,
+        alt: float,
+        ust: float,
+        adim: float,
+        bicim: Callable[[float], str],
+        tamsayi: bool,
+    ) -> tuple[Kaydirici, tk.Label]:
+        kart_hex = KART.to_hex()
+        cerceve = tk.Frame(kart, bg=kart_hex)
+        cerceve.pack(fill="x", padx=_CARD_PAD_X.to_int(), pady=(_ROW_PAD_TOP.to_int(), 0))
 
-    def _kaydirici_satiri(self, kart, ikon_ad, ad, anahtar, alt, ust, adim, bicim, tamsayi):
-        cerceve = tk.Frame(kart, bg=KART.to_hex())
-        cerceve.pack(fill="x", padx=px(16), pady=(px(10), 0))
-        ust_satir = tk.Frame(cerceve, bg=KART.to_hex())
+        ust_satir = tk.Frame(cerceve, bg=kart_hex)
         ust_satir.pack(fill="x")
-        Ikon(ust_satir, ikon_ad, C1.to_hex(), KART.to_hex()).pack(side="left")
-        tk.Label(ust_satir, text=ad, font=(FONT, 10, "bold"), fg=FG.to_hex(), bg=KART.to_hex()).pack(
-            side="left", padx=(px(8), 0))
-        deger = tk.Label(ust_satir, text=bicim(getattr(self.ayar, anahtar)), font=(FONT, 10, "bold"),
-                         fg=C1.to_hex(), bg=KART.to_hex())
-        deger.pack(side="right")
+        Ikon(ust_satir, ikon).pack(side="left")
+        tk.Label(ust_satir, text=ad, font=(FONT, 10, "bold"), fg=FG.to_hex(), bg=kart_hex).pack(
+            side="left", padx=(_ICON_TEXT_GAP.to_int(), 0),
+        )
 
-        def degisti(v):
-            v = int(round(v)) if tamsayi else round(float(v), 2)
-            setattr(self.ayar, anahtar, v)
-            deger.config(text=bicim(v))
+        mevcut = float(getattr(self.ayar, anahtar))
+        deger_lbl = tk.Label(ust_satir, text=bicim(mevcut), font=(FONT, 10, "bold"), fg=C1.to_hex(), bg=kart_hex)
+        deger_lbl.pack(side="right")
+
+        def degisti(v: float) -> None:
+            temiz: int | float = int(round(v)) if tamsayi else round(float(v), 2)
+            setattr(self.ayar, anahtar, temiz)
+            deger_lbl.config(text=bicim(float(temiz)))
             self._kaydet_planla()
 
-        k = Kaydirici(cerceve, alt, ust, adim, getattr(self.ayar, anahtar), degisti, KART)
-        k.pack(fill="x", pady=(px(2), 0))
-        return k, deger
+        slider = Kaydirici(cerceve, alt, ust, adim, mevcut, degisti, KART)
+        slider.pack(fill="x", pady=(Px(2).to_int(), 0))
+        return slider, deger_lbl
 
     # --- gorunum / olaylar ---
-    def _gorunum_senkron(self):
+    def _gorunum_senkron(self) -> None:
         sabit = self.ayar.mod == "sabit"
         self.ornek.gokkusagi = not sabit
         self.ornek.renk = self.ayar.renk
-        self.ornek.ciz()
         self.renk_dugme.aktif = sabit
-        self.renk_dugme.ciz()
+
         acik = self.ayar.bekleme_acik
         self.bek_ornek.aktif = acik
         self.bek_ornek.renk = self.ayar.bekleme_renk
-        self.bek_ornek.ciz()
         self.bek_dugme.aktif = acik
-        self.bek_dugme.ciz()
         self.bek_slider.aktif = acik
-        self.bek_slider.ciz()
 
-    def _kaydet_planla(self):
+    def _kaydet_planla(self) -> None:
         if self._kayit_zamanlayici is not None:
             self.root.after_cancel(self._kayit_zamanlayici)
-        self._kayit_zamanlayici = self.root.after(400, lambda: self.ayar.set_config())
+        self._kayit_zamanlayici = self.root.after(_SAVE_DEBOUNCE_MS, self.ayar.set_config)
 
-    def _mod_degisti(self, deger):
+    def _mod_degisti(self, deger: str) -> None:
         self.ayar.mod = deger
         self._gorunum_senkron()
         self._kaydet_planla()
 
-    def _renk_sec(self):
-        sonuc = colorchooser.askcolor(color=self.ayar.renk.to_hex(), title=LocaleManager().color.dialog_title)
+    def _renk_sec(self) -> None:
+        sonuc = colorchooser.askcolor(
+            color=self.ayar.renk.to_hex(),
+            title=LocaleManager().color.dialog_title,
+        )
         if sonuc and sonuc[1]:
             self.ayar.renk = RGBData.from_hex(sonuc[1])
             self._gorunum_senkron()
             self._kaydet_planla()
 
-    def _bek_ac(self, deger):
+    def _bek_ac(self, deger: bool) -> None:
         self.ayar.bekleme_acik = bool(deger)
         self._gorunum_senkron()
         self._kaydet_planla()
 
-    def _bek_renk_sec(self):
+    def _bek_renk_sec(self) -> None:
         if not self.ayar.bekleme_acik:
             return
-        sonuc = colorchooser.askcolor(color=self.ayar.bekleme_renk.to_hex(), title=LocaleManager().standby.dialog_title)
+        sonuc = colorchooser.askcolor(
+            color=self.ayar.bekleme_renk.to_hex(),
+            title=LocaleManager().standby.dialog_title,
+        )
         if sonuc and sonuc[1]:
             self.ayar.bekleme_renk = RGBData.from_hex(sonuc[1])
             self._gorunum_senkron()
             self._kaydet_planla()
 
-    def _ac_kapat(self):
+    def _ac_kapat(self) -> None:
         if self.motor.calisiyor:
             self.motor.durdur()
         else:
             self.motor.baslat()
+
+        loc = LocaleManager().actions
         if self.motor.calisiyor:
-            self.ana.ayarla(metin=LocaleManager().actions.stop, c1=DUR1, c2=DUR2, ikon="durdur")
+            self.ana.ayarla(metin=loc.stop, c1=DUR1, c2=DUR2, ikon=IkonEnum.DURDUR)
         else:
-            self.ana.ayarla(metin=LocaleManager().actions.start, c1=C1, c2=C2, ikon="oynat")
+            self.ana.ayarla(metin=loc.start, c1=C1, c2=C2, ikon=IkonEnum.OYNAT)
 
-    def _durum_guncelle(self):
+    def _durum_guncelle(self) -> None:
         if self.motor.durum_hata:
-            renk = HATA.to_hex()
+            nokta_renk = yazi_renk = HATA.to_hex()
         elif self.motor.calisiyor:
-            renk = YESIL.to_hex()
+            nokta_renk = YESIL.to_hex()
+            yazi_renk = FG.to_hex()
         else:
-            renk = DIM.to_hex()
-        self.nokta.config(fg=renk)
-        self.durum.config(text=self.motor.durum, fg=HATA.to_hex() if self.motor.durum_hata else FG.to_hex() if self.motor.calisiyor else DIM.to_hex())
-        self.root.after(500, self._durum_guncelle)
+            nokta_renk = yazi_renk = DIM.to_hex()
 
-    def _kapat(self):
+        self.nokta.config(fg=nokta_renk)
+        self.durum.config(text=self.motor.durum, fg=yazi_renk)
+        self.root.after(_STATUS_POLL_MS, self._durum_guncelle)
+
+    def _kapat(self) -> None:
         try:
             self.motor.durdur()
         finally:
