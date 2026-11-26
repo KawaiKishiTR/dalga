@@ -4,7 +4,7 @@ from typing import Callable
 
 from app.common.rgbdata import RGBData
 from app.ui.base.mixins import ClickableMixin, DrawOnInitMixin, HoverableMixin
-from app.ui.ikon import IkonEnum, Icon
+from app.ui.ikon import IkonEnum, Ikon
 from app.ui.common import (
     Px, FONT, DEVRE, 
 )
@@ -117,7 +117,7 @@ class Dugme(DrawOnInitMixin, HoverableMixin, ClickableMixin, tk.Canvas):
         cursor_x = (w - content_width) / 2
 
         if self.ikon is not None:
-            Icon.ciz(self.ikon, self, cursor_x + icon_r, cy, icon_r, text_color, c1)
+            Ikon.ciz(self.ikon, self, cursor_x + icon_r, cy, icon_r, text_color, c1)
             cursor_x += 2 * icon_r + icon_gap
 
         self.create_text(

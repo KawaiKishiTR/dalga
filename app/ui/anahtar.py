@@ -24,11 +24,11 @@ class Anahtar(ClickableMixin, tk.Canvas):
             genislik:Px = Px(48),
             yukseklik:Px = Px(26)
     ) -> None:
-        self._w = genislik.to_int()
-        self._h = yukseklik.to_int()
+        self._genislik = genislik.to_int()
+        self._yukseklik = yukseklik.to_int()
         self._deger = bool(deger)
         self.komut = komut
-        super().__init__(ebeveyn, width=self.gen, height=self.yuk, bg=bg.to_hex(),
+        super().__init__(ebeveyn, width=self._genislik, height=self._yukseklik, bg=bg.to_hex(),
                          highlightthickness=0, bd=0, cursor="hand2")
         self.draw()
 
@@ -44,7 +44,7 @@ class Anahtar(ClickableMixin, tk.Canvas):
             self.draw()
 
     def _draw_track(self) -> None:
-        w, h = self._w, self._h
+        w, h = self._genislik, self._yukseklik
         x_start = h // 2
         x_end = w - x_start
 
@@ -65,7 +65,7 @@ class Anahtar(ClickableMixin, tk.Canvas):
                 self.create_line(x, 0, x, h, fill=color, width=_GRADIENT_STEP + 1)
 
     def _draw_knob(self) -> None:
-        w, h = self._w, self._h
+        w, h = self._genislik, self._yukseklik
         cy = h / 2
         r = cy - _KNOB_PAD.to_int()
         kx = (w - cy) if self._deger else cy

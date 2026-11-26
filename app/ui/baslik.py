@@ -5,7 +5,7 @@ from app.common.rgbdata import RGBData
 from app.locale.manager import LocaleManager
 from app.ui.base.mixins import DrawOnInitMixin
 from app.ui.common import Px, KART, C1, C2, FONT, DIM, KENAR
-from app.ui.ikon import IkonEnum, Icon
+from app.ui.ikon import IkonEnum, Ikon
 
 SURUM = "v0.4"
 _APP_NAME = "DALGA"  # Uygulama ismi kasitli olarak cevrilmez
@@ -24,7 +24,6 @@ class Baslik(DrawOnInitMixin, tk.Canvas):
     def __init__(self, 
             ebeveyn:tk.Misc, 
             bg:RGBData,
-            surum:str = SURUM,
             yukseklik:Px = _HEIGHT
     ) -> None:
         super().__init__(
@@ -48,7 +47,7 @@ class Baslik(DrawOnInitMixin, tk.Canvas):
             pad + inner, cy - half + inner, pad + badge_size - inner, cy + half - inner,
             fill=kart_hex, outline=C2.to_hex(), width=1,
         )
-        Icon.ciz(IkonEnum.DALGA, self, pad + half, cy, badge_size * 0.27, C1, KART)
+        Ikon.ciz(IkonEnum.DALGA, self, pad + half, cy, badge_size * 0.27, C1, KART)
 
     def _draw_title(self, start_x: int, cy: int) -> None:
         x = float(start_x)

@@ -1,8 +1,14 @@
 # kişisel vscode ayarları
 .vscode/settings.json
 
-# kişinin kendi config dosyası repoya konmaz
-config/config.yml
+# geliştirme esnasında çalıştırmalar ile oluşan dosyalar
+config/
+logs/
+
+# derleme çıktıları
+*.spec
+dist/
+build/
 
 # py
 __pycache__/
